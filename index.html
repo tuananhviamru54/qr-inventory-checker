@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QR Inventory Demo</title>
+</head>
+<body>
+  <h1>Demo Quét Mã QR Kiểm Kho</h1>
+  <p>Bản này dùng để chạy trên host tĩnh.</p>
+  <p>Ví dụ mã hợp lệ: <code>SP001, SP002, SP003</code></p>
+  <input type="text" id="qrInput" placeholder="Nhập mã sản phẩm" />
+  <button onclick="checkQR()">Kiểm tra</button>
+  <p id="result"></p>
+  <script>
+    function checkQR() {
+      const valid = ['SP001', 'SP002', 'SP003'];
+      const code = document.getElementById('qrInput').value.trim().toUpperCase();
+      const result = document.getElementById('result');
+      if (valid.includes(code)) {
+        result.innerText = '✅ Mã hợp lệ';
+        result.style.color = 'green';
+      } else {
+        result.innerText = '❌ Không khớp đơn hàng';
+        result.style.color = 'red';
+      }
+    }
+  </script>
+</body>
+</html>
