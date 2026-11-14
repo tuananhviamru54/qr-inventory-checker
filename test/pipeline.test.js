@@ -10,7 +10,7 @@ import { runPipeline } from '../src/index.js';
 import { LoginError } from '../src/amis.js';
 import { parseNumber, resolvePeriod, totp, parseDateRange } from '../src/util.js';
 import { blockReason, forbiddenLabel } from '../src/readonly.js';
-import { handleUpdate, handleCallbackData, parseSalesIntent, MENU, COMMANDS } from '../src/bot.js';
+import { handleUpdate, handleCallbackData, parseSalesIntent, buildCalendar, MENU, COMMANDS } from '../src/bot.js';
 import { Telegram } from '../src/telegram.js';
 import { Supervisor } from '../src/supervisor-client.js';
 
@@ -404,7 +404,7 @@ test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối ch
 
     // tùy chọn ngày: bấm → bot hỏi → gõ sai thì báo lỗi và vẫn chờ → gõ đúng thì ra báo cáo
     await handleCallbackData(config, tg, 's:custom', opts);
-    assert.match(last().text, /Tùy chọn ngày/);
+    assert.match(last().text, /Chọn khoảng ngày/);
     await handleUpdate(config, tg, '31/02/2026', opts);
     assert.match(last().text, /không tồn tại trong lịch/);
     assert.ok(opts.state.awaitingRange);
@@ -428,6 +428,65 @@ test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối ch
     await writeSalesWorkbook(root, { totalDoanhSo: 9999999 });
     await handleCallbackData(config, tg, 's:today', opts);
     assert.match(last().text, /⚠️ Tổng các dòng khác dòng "Tổng cộng" của AMIS ở: doanh_so/);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('lịch chọn ngày bằng nút bấm: chọn đầu–cuối, 1 ngày, chuyển tháng, khoá ngày không hợp lệ, huỷ', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    await writeSalesWorkbook(root);
+    const config = salesFileConfig(mock, root);
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    const todayNum = Number(resolvePeriod('today').today.split('/').reverse().join(''));
+    const ym = Math.floor(todayNum / 100);
+    const press = (data, opts) => handleCallbackData(config, tg, data, { messageId: 77, ...opts });
+    const edits = () => mock.state.telegram.filter((c) => c.method === 'editMessageText').map((c) => JSON.parse(c.text)).filter((b) => b.message_id === 77);
+    const last = () => sentBodies(mock).at(-1);
+
+    // cấu trúc lịch: ngày tương lai bị khoá, hôm nay có dấu •, ngày bắt đầu có ✔ và các ngày trước nó bị khoá
+    const cal = buildCalendar({ ym: 202611, todayNum: 20261115, from: 20261103 });
+    const cells = cal.inline_keyboard.flat();
+    assert.equal(cells.find((b) => b.callback_data === 'c:d:20261103').text, '✔3');
+    assert.equal(cells.find((b) => b.callback_data === 'c:d:20261115').text, '•15');
+    assert.ok(!cells.some((b) => b.callback_data === 'c:d:20261116' || b.callback_data === 'c:d:20261102')); // tương lai / trước ngày bắt đầu: không bấm được
+    assert.ok(cells.some((b) => b.callback_data === 'c:m:202610') && !cells.some((b) => b.callback_data === 'c:m:202612')); // có lùi tháng, không tiến quá tháng hiện tại
+    assert.deepEqual(cal.inline_keyboard[1].map((b) => b.text), ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']);
+
+    // chọn khoảng: bấm "Tùy chọn ngày" → lịch tháng này → ngày bắt đầu → ngày kết thúc → ra báo cáo
+    const opts = { state: { awaitingRange: null, cal: null } };
+    await press('s:custom', opts);
+    const first = last();
+    assert.match(first.text, /Chọn khoảng ngày/);
+    const day = (d) => `c:d:${ym * 100 + d}`;
+    assert.ok(first.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === day(1)));
+    await press(day(1), opts);
+    assert.match(edits().at(-1).text, /Từ ngày 01\/\d\d\/\d{4}<\/b> ✔/);
+    assert.equal(mock.state.exports.length, 0);                                 // chưa vào AMIS khi mới chọn nửa chừng
+    await press('c:m:' + (ym - (ym % 100 === 1 ? 89 : 1)), opts);               // đổi sang tháng trước (vẫn giữ ngày bắt đầu)
+    assert.match(edits().at(-1).text, /Từ ngày 01/);
+    await press('c:t', opts);
+    await press(day(1), opts);                                                  // chọn lại đúng ngày 1 làm ngày kết thúc → 1 ngày
+    let m = last();
+    assert.match(m.text, /Báo cáo doanh số — 01\/\d\d\/\d{4}<\/b>/);
+    assert.match(edits().at(-1).text, /Đã chọn: <b>01\/\d\d\/\d{4}<\/b> — đang lập báo cáo/);
+    assert.deepEqual(edits().at(-1).reply_markup.inline_keyboard, []);          // lịch đã gỡ khỏi tin
+    assert.equal(opts.state.cal, null);
+
+    // chọn khoảng 2 ngày + nút "Chỉ 1 ngày" + "Chọn lại" + huỷ + ngày tương lai bị bỏ qua
+    await press('s:custom', opts);
+    await press(day(1), opts);
+    await press('c:r', opts);                                                  // chọn lại ngày bắt đầu
+    assert.equal(opts.state.cal.from, null);
+    await press(day(1), opts);
+    await press('c:o', opts);
+    assert.match(last().text, /Báo cáo doanh số — 01\//);
+    await press('s:custom', opts);
+    await press(`c:d:${todayNum + 1}`, opts);                                  // ngày tương lai: bỏ qua
+    assert.equal(opts.state.cal.from, null);
+    await press('c:x', opts);
+    assert.match(edits().at(-1).text, /Đã huỷ chọn ngày/);
+    assert.equal(opts.state.cal, null);
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

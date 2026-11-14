@@ -56,8 +56,10 @@ giảm giá, **doanh thu thuần**, tiền vốn, lãi gộp, số lượng bán
 trình cộng từ file AMIS (không qua AI) và được đối chiếu với dòng "Tổng cộng" của chính AMIS (kèm kiểm tra doanh thu
 thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch thì báo ⚠️. Tuần tính từ thứ Hai đến hôm nay.
 
-- **Tùy chọn ngày:** bấm 📅, rồi gõ `01/11/2026 - 10/11/2026` (hoặc 1 ngày `10/11/2026`; thiếu năm thì lấy năm nay).
-  Gõ `huỷ` để thôi. Tối đa 366 ngày.
+- **Tùy chọn ngày:** bấm 📅 sẽ hiện **lịch ngay trong tin nhắn**. Bấm ngày bắt đầu, rồi ngày kết thúc (hoặc nút "📌 Chỉ 1 ngày").
+  Có nút ‹ › đổi tháng, "↩ Chọn lại ngày bắt đầu", "📍 Về tháng này", "✖ Huỷ". Ngày ở tương lai và ngày trước ngày bắt
+  đầu bị khoá (hiện dấu "·"); hôm nay có dấu •. Thích gõ tay thì vẫn được: `01/11/2026 - 10/11/2026` hoặc 1 ngày
+  `10/11/2026` (thiếu năm thì lấy năm nay), gõ `huỷ` để thôi. Tối đa 366 ngày.
 - **Gõ tắt:** `/doanhso hôm qua`, `/doanhso 01/11/2026 - 10/11/2026`, hoặc gõ tự nhiên "doanh thu tuần này thế nào".
 - Dưới mỗi báo cáo có nút **🔄 Làm mới số liệu này** (luôn lấy lại từ AMIS) và **📅 Chọn kỳ khác**. Cùng một kỳ vừa lấy
   trong 30 phút thì được dùng lại để trả lời nhanh; tin ghi rõ giờ lấy số liệu.

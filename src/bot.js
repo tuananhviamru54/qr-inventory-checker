@@ -55,6 +55,77 @@ ${aiEnabled(config.ai)
   ? 'Hoặc gõ câu hỏi bất kỳ về tồn kho. Mọi câu trả lời đều qua chuyên gia (AI) đối chiếu và chốt, rồi kế toán trưởng (AI) kiểm tra độ chính xác trước khi gửi.'
   : RULE_HELP}`;
 
+// ---- Lịch chọn ngày bằng nút bấm (Telegram không có ô chọn ngày sẵn) ----
+const pad2 = (n) => String(n).padStart(2, '0');
+const numOf = (dmy) => { const [d, m, y] = dmy.split('/').map(Number); return y * 10000 + m * 100 + d; };   // 'dd/mm/yyyy' → yyyymmdd
+const dmyOf = (n) => `${pad2(n % 100)}/${pad2(Math.floor(n / 100) % 100)}/${Math.floor(n / 10000)}`;          // yyyymmdd → 'dd/mm/yyyy'
+const monthShift = (ym, delta) => { let y = Math.floor(ym / 100), m = (ym % 100) - 1 + delta; y += Math.floor(m / 12); m = ((m % 12) + 12) % 12; return y * 100 + m + 1; };
+
+/** Bàn phím lịch của tháng `ym` (yyyymm). Ngày sau hôm nay và (khi đang chọn ngày kết thúc) ngày trước ngày bắt đầu bị khoá. */
+export function buildCalendar({ ym, todayNum, from = null }) {
+  const y = Math.floor(ym / 100), m = ym % 100;
+  const blank = { text: ' ', callback_data: 'c:n' };
+  const nextAllowed = monthShift(ym, 1) * 100 + 1 <= todayNum;
+  const rows = [
+    [{ text: '‹', callback_data: `c:m:${monthShift(ym, -1)}` }, { text: `Tháng ${m}/${y}`, callback_data: 'c:n' },
+      nextAllowed ? { text: '›', callback_data: `c:m:${monthShift(ym, 1)}` } : blank],
+    ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((t) => ({ text: t, callback_data: 'c:n' })),
+  ];
+  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  let row = Array.from({ length: lead }, () => blank);
+  for (let d = 1; d <= days; d++) {
+    const n = ym * 100 + d;
+    let cell;
+    if (n > todayNum || (from && n < from)) cell = { text: '·', callback_data: 'c:n' };
+    else cell = { text: n === from ? `✔${d}` : n === todayNum ? `•${d}` : String(d), callback_data: `c:d:${n}` };
+    row.push(cell);
+    if (row.length === 7) { rows.push(row); row = []; }
+  }
+  if (row.length) { while (row.length < 7) row.push(blank); rows.push(row); }
+  if (from) rows.push([{ text: `📌 Chỉ 1 ngày ${dmyOf(from)}`, callback_data: 'c:o' }, { text: '↩ Chọn lại ngày bắt đầu', callback_data: 'c:r' }]);
+  rows.push([{ text: '📍 Về tháng này', callback_data: 'c:t' }, { text: '✖ Huỷ', callback_data: 'c:x' }]);
+  return { inline_keyboard: rows };
+}
+
+const calText = (from) => from
+  ? `📅 <b>Từ ngày ${dmyOf(from)}</b> ✔\nBấm <b>ngày kết thúc</b> (hoặc "Chỉ 1 ngày").`
+  : '📅 <b>Chọn khoảng ngày</b>\nBấm <b>ngày bắt đầu</b>. (Hoặc gõ thẳng, ví dụ <code>01/11/2026 - 10/11/2026</code>.)';
+
+async function sendCalendar(tg, state) {
+  const todayNum = numOf(resolvePeriod('today').today);
+  state.cal = { from: null };
+  await tg.sendMessage(calText(null), { reply_markup: buildCalendar({ ym: Math.floor(todayNum / 100), todayNum }) });
+}
+
+/**
+ * Xử lý 1 lần bấm trên lịch: sửa tin nhắn tại chỗ (đổi tháng, chọn ngày bắt đầu...).
+ * @returns {{fromDate,toDate,label}|null} khoảng ngày đã chọn xong (cần lập báo cáo), hoặc null
+ */
+export async function applyCalendar(tg, state, data, messageId) {
+  const todayNum = numOf(resolvePeriod('today').today);
+  const [, act, arg] = String(data).split(':');
+  const cal = (state.cal ??= { from: null });
+  const show = (ym) => tg.editMessage(messageId, calText(cal.from), { reply_markup: buildCalendar({ ym, todayNum, from: cal.from }) });
+  const done = (text) => tg.editMessage(messageId, text, { reply_markup: { inline_keyboard: [] } });
+  const range = (a, b) => ({ fromDate: dmyOf(a), toDate: dmyOf(b), label: a === b ? dmyOf(a) : `${dmyOf(a)} – ${dmyOf(b)}` });
+  const pick = async (a, b) => { state.cal = null; state.awaitingRange = null; const r = range(a, b); await done(`✅ Đã chọn: <b>${escapeHtml(r.label)}</b> — đang lập báo cáo…`); return r; };
+
+  if (act === 'n') return null;
+  if (act === 'x') { state.cal = null; state.awaitingRange = null; await done('Đã huỷ chọn ngày.'); return null; }
+  if (act === 't') { await show(Math.floor(todayNum / 100)); return null; }
+  if (act === 'm') { const ym = Number(arg); if (ym > 200000 && ym <= Math.floor(todayNum / 100)) await show(ym); return null; }
+  if (act === 'r') { cal.from = null; await show(Math.floor(todayNum / 100)); return null; }
+  if (act === 'o') return cal.from ? pick(cal.from, cal.from) : null;
+  if (act === 'd') {
+    const n = Number(arg);
+    if (!(n > 20000101 && n <= todayNum)) return null;                    // ngày không hợp lệ hoặc ở tương lai
+    if (!cal.from || n < cal.from) { cal.from = n; await show(Math.floor(n / 100)); return null; }
+    return pick(cal.from, n);
+  }
+  return null;
+}
+
 // ---- Báo cáo doanh số ----
 const periodOf = (key) => ({ ...resolvePeriod(key), label: PERIOD_LABELS[key] });
 const ddmmyyyy = (s) => s.replace(/\//g, '');
@@ -125,11 +196,15 @@ export async function handleCallbackData(config, tg, data, opts = {}) {
   if (kind === 's') {
     if (a === 'menu') return sendPeriodPicker(tg);
     if (a === 'custom') {
-      state.awaitingRange = Date.now();
-      return tg.sendMessage('📅 <b>Tùy chọn ngày</b>\nGửi khoảng ngày cần xem, ví dụ:\n<code>01/11/2026 - 10/11/2026</code>\nHoặc chỉ 1 ngày: <code>10/11/2026</code> (thiếu năm thì lấy năm nay). Gõ <i>huỷ</i> để thôi.');
+      state.awaitingRange = Date.now(); // vẫn cho phép gõ tay khoảng ngày
+      return sendCalendar(tg, state);
     }
     if (PERIOD_LABELS[a]) return handleSales(config, tg, periodOf(a), opts);
     return tg.sendMessage('Lựa chọn không hợp lệ.');
+  }
+  if (kind === 'c') {
+    const range = await applyCalendar(tg, state, data, opts.messageId);
+    return range ? handleSales(config, tg, range, opts) : undefined;
   }
   if (kind === 'r') {
     const d = (x) => `${x.slice(0, 2)}/${x.slice(2, 4)}/${x.slice(4)}`;
@@ -222,7 +297,7 @@ function tablesFor(datasets) {
   return Object.fromEntries(Object.values(datasets).filter((d) => d.rows?.length).map((d) => [d.name, d.rows]));
 }
 
-const defaultState = { awaitingRange: null };
+const defaultState = { awaitingRange: null, cal: null };
 const AWAIT_MS = 10 * 60 * 1000;
 
 export async function handleUpdate(config, tg, text, opts = {}) {
@@ -233,12 +308,12 @@ export async function handleUpdate(config, tg, text, opts = {}) {
   // đang chờ người dùng gõ khoảng ngày tuỳ chọn
   if (state.awaitingRange && Date.now() - state.awaitingRange > AWAIT_MS) state.awaitingRange = null;
   if (state.awaitingRange) {
-    if (cmd.startsWith('/')) state.awaitingRange = null;           // bấm lệnh/nút khác → thôi chờ
-    else if (/^(huy|huỷ|hủy|thoi|cancel)$/i.test(text.normalize('NFC'))) { state.awaitingRange = null; return tg.sendMessage('Đã huỷ chọn ngày.', { reply_markup: MENU }); }
+    if (cmd.startsWith('/')) { state.awaitingRange = null; state.cal = null; } // bấm lệnh/nút khác → thôi chờ
+    else if (/^(huy|huỷ|hủy|thoi|cancel)$/i.test(text.normalize('NFC'))) { state.awaitingRange = null; state.cal = null; return tg.sendMessage('Đã huỷ chọn ngày.', { reply_markup: MENU }); }
     else {
       const r = parseDateRange(text);
       if (r.error) return tg.sendMessage(`⚠️ ${escapeHtml(r.error)}\nGõ <i>huỷ</i> để thôi.`);
-      state.awaitingRange = null;
+      state.awaitingRange = null; state.cal = null;
       return handleSales(config, tg, { fromDate: r.from, toDate: r.to, label: r.from === r.to ? r.from : `${r.from} – ${r.to}` }, opts);
     }
   }
@@ -267,7 +342,7 @@ function salesIntent(config, tg, intent, opts) {
 export async function runBot(config, opts = {}) {
   const tg = telegramOf(config);
   const owner = String(config.secrets.telegramChatId);
-  const state = { awaitingRange: null };
+  const state = { awaitingRange: null, cal: null };
   opts = { ...opts, state };
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
@@ -295,7 +370,11 @@ export async function runBot(config, opts = {}) {
       offset = u.update_id + 1;
       const cq = u.callback_query;
       if (cq) {
-        if (/^[sr]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
+        if (/^c:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
+          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
+          const range = await applyCalendar(tg, state, cq.data, cq.message.message_id).catch(() => null); // chỉ sửa giao diện → làm ngay cả khi bot đang bận
+          if (range) dispatch(() => handleSales(config, tg, range, opts));
+        } else if (/^[sr]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           dispatch(() => handleCallbackData(config, tg, cq.data, opts));
         } else await tg.handleCallback(cq).catch(() => {});
