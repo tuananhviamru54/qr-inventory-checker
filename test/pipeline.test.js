@@ -161,10 +161,10 @@ test('agent kế toán trưởng: báo cáo được kiểm soát trước khi g
   try {
     await writeKiemKe(root);
     const out = await runPipeline(withAi(makeConfig(mock, root), mock), { log: () => {} });
-    assert.equal(out.review.status, 'dat_co_luu_y');
+    assert.equal(out.review.status, 'dat');
     const sent = JSON.parse(mock.state.telegram[0].text).text;
-    assert.match(sent, /Kế toán trưởng \(AI\) kiểm soát<\/b>: ⚠️ Đạt, có lưu ý/);
-    assert.match(sent, /Tồn kho âm cần bổ sung phiếu nhập/);
+    assert.match(sent, /✔ Đã kiểm tra chéo độ chính xác/);
+    assert.doesNotMatch(sent, /nhận xét|đề xuất|lưu ý/i);
     assert.ok(mock.state.ai.includes('review:ok'));
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -177,7 +177,7 @@ test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán t
     const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
     const out = await handleUpdate(config, tg, 'Mã SP002 còn tồn bao nhiêu?');
     assert.deepEqual(mock.state.ai.filter((x) => !x.startsWith('supervisor')), ['answer', 'review:reject', 'answer', 'review:ok']);
-    assert.equal(out.review.status, 'dat_co_luu_y');
+    assert.equal(out.review.status, 'dat');
     const calls = mock.state.telegram.map((c) => ({ method: c.method, body: c.contentType?.includes('json') ? JSON.parse(c.text) : null }));
     // tin đầu tiên là thanh tiến độ, sau đó được sửa nhiều lần, cuối cùng báo hoàn tất
     assert.equal(calls[0].method, 'sendMessage');
@@ -189,6 +189,8 @@ test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán t
     const answer = calls.filter((c) => c.method === 'sendMessage').at(-1).body.text;
     assert.match(answer, /SP002 Vở kẻ ngang còn 180 quyển/);
     assert.doesNotMatch(answer, /999/);
+    assert.match(answer, /✔ Đã kiểm tra chéo độ chính xác/);
+    assert.doesNotMatch(answer, /KHÔNG ĐẠT/);
     assert.match(answer, /Giám sát độc lập/);
 
     // Hỏi lần 2 trong vòng 30 phút: dùng lại dữ liệu, không vào AMIS nữa

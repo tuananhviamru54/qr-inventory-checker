@@ -47,8 +47,8 @@ export async function startMock() {
         state.reviewCalls++;
         const reject = user.includes('SP002 còn 999');
         out = reject
-          ? { ket_luan: 'khong_dat', sai_sot: ['Bản nháp ghi SP002 còn 999, số liệu gốc là 180'], nhan_xet: [], de_xuat: [] }
-          : { ket_luan: 'dat_co_luu_y', sai_sot: [], nhan_xet: ['Tồn kho âm cần bổ sung phiếu nhập'], de_xuat: ['Rà soát SP003'] };
+          ? { ket_luan: 'khong_dat', sai_sot: ['Bản nháp ghi SP002 còn 999, số liệu gốc là 180'] }
+          : { ket_luan: 'dat', sai_sot: [] };
         state.ai.push(reject ? 'review:reject' : 'review:ok');
       } else {
         out = { tra_loi: user.includes('kế toán trưởng trả lại') ? 'SP002 Vở kẻ ngang còn 180 quyển' : 'SP002 còn 999', du_can_cu: true };

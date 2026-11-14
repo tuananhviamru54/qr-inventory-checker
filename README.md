@@ -54,10 +54,11 @@ Chạy `npm run bot` để bot nghe tin nhắn Telegram (chỉ phục vụ đún
 lý soạn trả lời → kế toán trưởng kiểm soát → gửi), cập nhật vài giây một lần: bước nào xong, đã chạy bao lâu, dự kiến còn
 bao lâu (tính từ thời lượng các lần chạy trước, lưu ở `output/thoi-gian.json`).
 
-**1. Agent kế toán trưởng** (`src/agents/reviewer.js`) — kiểm soát mọi nội dung trước khi gửi. Nó nhận số liệu gốc (do
-chương trình tính từ file AMIS) và bản nháp, đối chiếu từng con số rồi kết luận *Đạt / Đạt có lưu ý / Không đạt*, kèm nhận
-xét nghiệp vụ. Với câu hỏi tự do, nếu "Không đạt" thì trả lại cho trợ lý soạn lại (tối đa `bot.maxReviewRounds` vòng); vẫn
-không đạt thì câu trả lời được gửi kèm cảnh báo rõ ràng. Agent này không được sửa số liệu trong báo cáo.
+**1. Agent kế toán trưởng** (`src/agents/reviewer.js`) — chỉ kiểm tra **độ chính xác**, không nhận xét hay đề xuất. Nó nhận
+số liệu gốc (do chương trình tính từ file AMIS) và bản nháp, đối chiếu từng con số, mã hàng và kết luận. Nếu đúng: tin
+gửi đi chỉ có thêm một dòng "✔ Đã kiểm tra chéo độ chính xác". Nếu sai: với câu hỏi tự do thì trả lại cho trợ lý soạn lại
+(tối đa `bot.maxReviewRounds` vòng); vẫn sai thì câu trả lời được gửi kèm cảnh báo "KHÔNG ĐẠT" nêu rõ điểm sai. Agent này
+không được sửa số liệu trong báo cáo.
 
 **2. Agent giám sát độc lập** (`src/supervisor.js`) — chạy thành **tiến trình riêng**, tách khỏi tiến trình điều khiển
 trình duyệt, giám sát từ lúc đăng nhập. Mọi yêu cầu không phải GET gửi lên MISA và mọi lần bấm nút đều phải được nó cho
