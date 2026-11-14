@@ -11,7 +11,7 @@ export class LoginError extends Error {}
 const DEFAULT_SELECTORS = {
   username: 'input[name="username" i], input[name="email" i], input[type="email"], input[autocomplete="username"]',
   password: 'input[type="password"]',
-  submit: 'button[type="submit"], button:has-text("Đăng nhập"), input[type="submit"]',
+  submit: 'button.login-form-btn, button[type="submit"]:has-text("Đăng nhập"), input[type="submit"]',
   otp: 'input[name*="otp" i], input[autocomplete="one-time-code"], input[placeholder*="xác thực" i], input[placeholder*="OTP" i]',
   loggedIn: '',
 };
@@ -38,6 +38,7 @@ export class AmisSession {
       serviceWorkers: 'block', // để mọi yêu cầu mạng đều đi qua lớp chặn chỉ-đọc
       executablePath: process.env.CHROMIUM_PATH || undefined,
       args: process.env.CHROMIUM_NO_SANDBOX ? ['--no-sandbox'] : [],
+      proxy: process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined,
     });
     this.context.setDefaultTimeout(this.amis.timeoutMs ?? 30000);
     this.audit = await installNetworkGuard(this.context, { allowPost: this.amis.readOnly?.allowPost, log: this.log });
