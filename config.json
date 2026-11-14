@@ -39,34 +39,24 @@
           "waitFor": "button:has-text('Xem báo cáo')"
         },
         {
-          "fill": {
-            "selector": "input.input-date >> nth=0",
-            "value": "{{fromDate}}"
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
           }
         },
         {
-          "press": "Tab"
-        },
-        {
-          "fill": {
-            "selector": "input.input-date >> nth=1",
-            "value": "{{toDate}}"
-          }
-        },
-        {
-          "press": "Tab"
-        },
-        {
-          "click": {
-            "selector": "text=Chọn tất cả kho",
-            "unlessVisible": "[data-testid='sme_iibsp_mschk_isselectallstock'] .ms-checkbox-border-checked-true"
-          }
+          "ensureChecked": "[data-testid='sme_iibsp_mschk_isselectallstock']"
         },
         {
           "wait": 1500
         },
         {
           "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
         },
         {
           "waitFor": "text=Tổng số"
@@ -200,6 +190,155 @@
               "Số lượng kiểm kê",
               "Số lượng",
               "SL"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "doanh_so",
+      "name": "Doanh số bán hàng",
+      "type": "amis",
+      "onDemand": true,
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/SalesSummaryByInventory"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "ensureChecked": "label:has-text('Chọn tất cả vật tư')"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitFor": "text=Tổng số"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ],
+      "parse": {
+        "key": [
+          "ma_hang"
+        ],
+        "fields": {
+          "ma_hang": {
+            "headers": [
+              "Mã hàng",
+              "Mã VTHH",
+              "Mã vật tư"
+            ],
+            "type": "text"
+          },
+          "ten_hang": {
+            "headers": [
+              "Tên hàng",
+              "Tên VTHH",
+              "Tên vật tư"
+            ],
+            "type": "text"
+          },
+          "sl_ban": {
+            "headers": [
+              "Số lượng bán",
+              "SL bán"
+            ]
+          },
+          "doanh_so": {
+            "headers": [
+              "Doanh số bán"
+            ]
+          },
+          "chiet_khau": {
+            "headers": [
+              "Chiết khấu"
+            ]
+          },
+          "sl_tra": {
+            "headers": [
+              "SL trả lại",
+              "Số lượng trả lại"
+            ]
+          },
+          "gia_tri_tra": {
+            "headers": [
+              "Giá trị trả lại"
+            ]
+          },
+          "giam_gia": {
+            "headers": [
+              "Giá trị giảm giá",
+              "Giảm giá"
+            ]
+          },
+          "doanh_thu": {
+            "headers": [
+              "Doanh thu thuần",
+              "Doanh thu"
+            ]
+          },
+          "tien_von": {
+            "headers": [
+              "Tiền vốn"
+            ]
+          },
+          "lai_gop": {
+            "headers": [
+              "Lãi gộp"
             ]
           }
         }

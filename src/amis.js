@@ -175,7 +175,7 @@ export class AmisSession {
   }
 
   /** Chạy danh sách bước của 1 báo cáo, trả về đường dẫn file đã tải. */
-  async exportReport(source, vars) {
+  async exportReport(source, vars, { fileName } = {}) {
     const { page } = this;
     let saved = null;
     const t = (s) => template(s, vars);
@@ -208,14 +208,58 @@ export class AmisSession {
             break;
           }
           case 'fill': {
+            // { selector, value, enter?, tab?, verify? } — verify: đọc lại giá trị sau khi điền, AMIS không nhận thì thử lại (tối đa 3 lần)
             const loc = page.locator(t(arg.selector)).first();
-            this.supervisor.ask({ kind: 'fill', selector: t(arg.selector), value: t(arg.value) }).catch(() => {});
-            await loc.fill(t(arg.value));
-            if (arg.enter) await loc.press('Enter');
+            const value = t(arg.value);
+            this.supervisor.ask({ kind: 'fill', selector: t(arg.selector), value }).catch(() => {});
+            for (let attempt = 1; ; attempt++) {
+              await loc.fill(value);
+              if (arg.enter) await loc.press('Enter');
+              if (arg.tab) await loc.press('Tab');
+              if (!arg.verify || (await loc.inputValue()) === value) break;
+              if (attempt >= 3) throw new Error(`ô "${t(arg.selector)}" không nhận giá trị ${value}`);
+              await page.waitForTimeout(400);
+            }
+            break;
+          }
+          case 'dateRange': {
+            // { from, to, fromValue, toValue } — AMIS từ chối khoảng ngày bị đảo (từ > đến) nên đặt ô nào trước phụ thuộc vào giá trị hiện tại
+            const fromLoc = page.locator(t(arg.from)).first();
+            const toLoc = page.locator(t(arg.to)).first();
+            const fromV = t(arg.fromValue), toV = t(arg.toValue);
+            const num = (v) => { const [d, m, y] = v.split('/').map(Number); return y * 10000 + m * 100 + d; };
+            const setVerified = async (loc, value) => {
+              for (let attempt = 1; ; attempt++) {
+                // ô ngày của AMIS chỉ nhận khi gõ phím thật (fill() không kích hoạt được)
+                await loc.click();
+                await page.keyboard.press('Control+A');
+                await page.keyboard.type(value, { delay: 30 });
+                await page.keyboard.press('Tab');
+                if ((await loc.inputValue()) === value) return;
+                if (attempt >= 3) throw new Error(`AMIS không nhận ngày ${value}`);
+                await page.waitForTimeout(400);
+              }
+            };
+            this.supervisor.ask({ kind: 'fill', selector: 'dateRange', value: `${fromV} - ${toV}` }).catch(() => {});
+            const order = num(fromV) <= num(await toLoc.inputValue()) ? [[fromLoc, fromV], [toLoc, toV]] : [[toLoc, toV], [fromLoc, fromV]];
+            for (const [loc, value] of order) await setVerified(loc, value);
+            if ((await fromLoc.inputValue()) !== fromV || (await toLoc.inputValue()) !== toV) throw new Error(`khoảng ngày sau khi đặt không đúng ${fromV} – ${toV}`);
+            break;
+          }
+          case 'ensureChecked': { // tích ô nếu CHƯA tích (đọc trạng thái thật); không bao giờ bỏ tích. AMIS nhớ lựa chọn lần trước nên không được bấm mù.
+            const label = page.locator(t(arg)).first();
+            await label.waitFor({ state: 'visible' });
+            const box = label.locator('input[type=checkbox]').first();
+            if (!(await box.isChecked())) {
+              await safeClick(t(arg));
+              await page.waitForTimeout(800);
+              if (!(await box.isChecked())) throw new Error(`không tích được ô "${t(arg)}"`);
+            }
             break;
           }
           case 'press': await page.keyboard.press(arg); break;
           case 'wait': await page.waitForTimeout(arg); break;
+          case 'waitGone': await page.locator(t(arg)).first().waitFor({ state: 'hidden' }); break;
           case 'waitFor': await page.locator(t(arg)).first().waitFor({ state: 'visible' }); break;
           case 'download': {
             // dạng rút gọn: "selector"; dạng đầy đủ: { selector, confirm?, response? }
@@ -246,7 +290,7 @@ export class AmisSession {
                 await safeClick(t(spec.selector));
                 const { buf, url } = await body;
                 const ext = path.extname(new URL(url).searchParams.get('file') ?? '') || '.xlsx';
-                saved = path.join(this.dirs.downloads, `${source.id}${ext}`);
+                saved = path.join(this.dirs.downloads, `${fileName ?? source.id}${ext}`);
                 await fs.writeFile(saved, buf);
               } finally { await page.unroute(match, onRoute).catch(() => {}); }
               break;
@@ -261,7 +305,7 @@ export class AmisSession {
             }
             const download = await pending;
             const ext = path.extname(download.suggestedFilename()) || '.xlsx';
-            saved = path.join(this.dirs.downloads, `${source.id}${ext}`);
+            saved = path.join(this.dirs.downloads, `${fileName ?? source.id}${ext}`);
             await download.saveAs(saved);
             break;
           }

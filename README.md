@@ -40,6 +40,29 @@ và được liệt kê cuối tin Telegram — đó là hoạt động bình th
 > chắn nhất là dùng một tài khoản AMIS riêng chỉ được phân quyền Xem/In/Xuất báo cáo** — khi đó chính AMIS từ chối
 > mọi thao tác ghi. Lưu ý `npm run codegen` là trình duyệt do bạn tự thao tác, không có lớp chặn này.
 
+### Bộ điều khiển trong Telegram
+
+Chạy `npm run bot`: khi khởi động bot đăng ký menu lệnh của Telegram và hiện **bàn phím cố định** dưới ô nhập tin:
+
+| Nút | Việc làm |
+|---|---|
+| 🔄 Lấy báo cáo mới nhất | Vào AMIS lấy dữ liệu mới (làm mới) rồi gửi báo cáo đối chiếu tồn kho (= `/moi`) |
+| 📊 Báo cáo tồn kho | Báo cáo đối chiếu, dùng lại dữ liệu nếu vừa xuất trong 30 phút (= `/baocao`) |
+| 💰 Báo cáo doanh số | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** (= `/doanhso`) |
+| ❓ Hướng dẫn | Xem hướng dẫn (= `/trogiup`) |
+
+**Báo cáo doanh số** lấy từ báo cáo *Tổng hợp bán hàng theo mặt hàng* của AMIS: doanh số bán, chiết khấu, hàng trả lại,
+giảm giá, **doanh thu thuần**, tiền vốn, lãi gộp, số lượng bán và top 10 mặt hàng theo doanh thu. Mọi con số do chương
+trình cộng từ file AMIS (không qua AI) và được đối chiếu với dòng "Tổng cộng" của chính AMIS (kèm kiểm tra doanh thu
+thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch thì báo ⚠️. Tuần tính từ thứ Hai đến hôm nay.
+
+- **Tùy chọn ngày:** bấm 📅, rồi gõ `01/11/2026 - 10/11/2026` (hoặc 1 ngày `10/11/2026`; thiếu năm thì lấy năm nay).
+  Gõ `huỷ` để thôi. Tối đa 366 ngày.
+- **Gõ tắt:** `/doanhso hôm qua`, `/doanhso 01/11/2026 - 10/11/2026`, hoặc gõ tự nhiên "doanh thu tuần này thế nào".
+- Dưới mỗi báo cáo có nút **🔄 Làm mới số liệu này** (luôn lấy lại từ AMIS) và **📅 Chọn kỳ khác**. Cùng một kỳ vừa lấy
+  trong 30 phút thì được dùng lại để trả lời nhanh; tin ghi rõ giờ lấy số liệu.
+- Bot xử lý từng yêu cầu một; đang bận thì báo "⏳ Đang xử lý yêu cầu trước".
+
 ### Ba agent và bot hỏi–đáp
 
 Chạy `npm run bot` để bot nghe tin nhắn Telegram (chỉ phục vụ đúng `TELEGRAM_CHAT_ID`):
@@ -131,8 +154,11 @@ Mỗi báo cáo AMIS là một mục trong `sources` của `config.json`, với 
 | `goto` | `{ "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/INInventoryBalanceSummary" }` |
 | `click` | `{ "click": "text=Tổng hợp tồn kho" }` hoặc có điều kiện: `{ "click": { "selector": "...", "ifVisible": "...", "unlessVisible": "...", "optional": true, "timeout": 15000 } }` (`optional`: chờ tối đa `timeout`, không thấy thì bỏ qua) |
 | `fill` | `{ "fill": { "selector": "input[placeholder*='Từ ngày']", "value": "{{fromDate}}", "enter": true } }` |
+| `fill` (nâng cao) | `{ "fill": { "selector": "...", "value": "{{fromDate}}", "tab": true, "verify": true } }` — `tab`: bấm Tab sau khi điền; `verify`: đọc lại giá trị, AMIS không nhận thì thử lại (ô ngày của AMIS đôi khi bỏ qua lần điền đầu) |
+| `dateRange` | `{ "dateRange": { "from": "...", "to": "...", "fromValue": "{{fromDate}}", "toValue": "{{toDate}}" } }` — đặt khoảng ngày, tự chọn thứ tự điền để AMIS không từ chối (từ > đến), đọc lại để xác nhận |
+| `ensureChecked` | `{ "ensureChecked": "label:has-text('Chọn tất cả vật tư')" }` — tích ô nếu chưa tích (AMIS nhớ lựa chọn lần trước nên không bấm mù) |
 | `press` | `{ "press": "Enter" }` |
-| `wait` / `waitFor` | `{ "wait": 3000 }` / `{ "waitFor": "text=Tổng cộng" }` |
+| `wait` / `waitFor` / `waitGone` | `{ "wait": 3000 }` / `{ "waitFor": "text=Tổng cộng" }` / `{ "waitGone": "button:has-text('Xem báo cáo')" }` (chờ phần tử biến mất) |
 | `download` | `{ "download": { "selector": "text=\"Tải tệp\"", "response": "/file-access/download" } }` — bấm rồi lưu file từ phản hồi mạng có URL chứa `response`. Dạng `{ "download": "selector" }` dùng cơ chế tải file của trình duyệt. |
 
 Biến dùng được: `{{fromDate}}`, `{{toDate}}`, `{{today}}` (dd/MM/yyyy), tính theo `period`:

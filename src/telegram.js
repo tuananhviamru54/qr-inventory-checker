@@ -101,8 +101,8 @@ export class Telegram {
     return answer('Đã ghi nhận');
   }
 
-  /** Gửi tin HTML, tự tách theo dòng nếu vượt giới hạn 4096 ký tự. */
-  async sendMessage(html) {
+  /** Gửi tin HTML, tự tách theo dòng nếu vượt giới hạn 4096 ký tự. `reply_markup` (nút bấm/bàn phím) gắn vào tin cuối. */
+  async sendMessage(html, { reply_markup } = {}) {
     const chunks = [];
     let cur = '';
     for (const line of html.split('\n')) {
@@ -110,9 +110,17 @@ export class Telegram {
       cur += (cur ? '\n' : '') + line.slice(0, 3900);
     }
     if (cur) chunks.push(cur);
-    for (const text of chunks) {
-      await this.call('sendMessage', { chat_id: this.chatId, text, parse_mode: 'HTML', disable_web_page_preview: true });
+    for (const [i, text] of chunks.entries()) {
+      await this.call('sendMessage', {
+        chat_id: this.chatId, text, parse_mode: 'HTML', disable_web_page_preview: true,
+        ...(reply_markup && i === chunks.length - 1 ? { reply_markup } : {}),
+      });
     }
+  }
+
+  /** Đăng ký danh sách lệnh hiện trong nút "Menu" của Telegram. */
+  async setCommands(commands) {
+    await this.call('setMyCommands', { commands });
   }
 
   async sendFile(file, caption, method = 'sendDocument') {

@@ -95,6 +95,7 @@ export async function readDataset(file, parse) {
   const missing = Object.keys(parse.fields).filter((f) => !(f in best.map));
   const skip = new RegExp(parse.skipKeyPattern ?? '^(tong|cong|so dong|nguoi lap|ngay)\\b', 'i');
   const rows = [];
+  let totals = null;
   const start = best.r + (best.twoRow ? 2 : 1);
   for (let r = start; r < grid.length; r++) {
     const raw = grid[r];
@@ -112,10 +113,13 @@ export async function readDataset(file, parse) {
     // dòng nhóm (vd "Kho: Kho chính"): chỉ có ô khoá, các cột khác đều trống
     const others = Object.entries(best.map).filter(([name]) => !keyFields.includes(name));
     if (others.length && others.every(([, col]) => raw[col] == null || raw[col] === '')) continue;
-    if (skip.test(norm(keyVals[0]))) continue; // dòng tổng cộng
+    if (skip.test(norm(keyVals[0]))) { // dòng tổng cộng: giữ lại để đối chiếu với tổng các dòng
+      if (!totals && /^tong/.test(norm(keyVals[0]))) totals = { ...row };
+      continue;
+    }
     // dòng đánh số cột (A, B, 1, 2...) ngay dưới tiêu đề
     if (r === start && /^(\(?[a-z0-9]\)?)$/i.test(keyVals[0])) continue;
     rows.push(row);
   }
-  return { rows, missingFields: missing, headerRow: best.r + 1 };
+  return { rows, missingFields: missing, headerRow: best.r + 1, totals };
 }

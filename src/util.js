@@ -56,6 +56,7 @@ export function resolvePeriod(period = 'thisMonth', now = new Date(), timeZone =
   switch (period) {
     case 'today': break;
     case 'yesterday': from = to = new Date(Date.UTC(y, m, d - 1)); break;
+    case 'thisWeek': from = new Date(Date.UTC(y, m, d - ((today.getUTCDay() + 6) % 7))); break; // thứ 2 → hôm nay
     case 'thisMonth': from = new Date(Date.UTC(y, m, 1)); break;
     case 'lastMonth': from = new Date(Date.UTC(y, m - 1, 1)); to = new Date(Date.UTC(y, m, 0)); break;
     case 'thisYear': from = new Date(Date.UTC(y, 0, 1)); break;
@@ -93,4 +94,27 @@ export async function totp(secretBase32, now = Date.now()) {
   const o = h[h.length - 1] & 0xf;
   const code = ((h[o] & 0x7f) << 24 | h[o + 1] << 16 | h[o + 2] << 8 | h[o + 3]) % 1e6;
   return String(code).padStart(6, '0');
+}
+
+export const PERIOD_LABELS = { today: 'Hôm nay', yesterday: 'Hôm qua', thisWeek: 'Tuần này', thisMonth: 'Tháng này', lastMonth: 'Tháng trước' };
+
+/**
+ * Đọc khoảng ngày người dùng gõ: "01/11/2026 - 10/11/2026", "1/11 đến 10/11" (thiếu năm = năm hiện tại), hoặc 1 ngày.
+ * @returns {{from:string,to:string}|{error:string}}
+ */
+export function parseDateRange(text, now = new Date()) {
+  const ty = +resolvePeriod('today', now).today.split('/')[2];
+  const found = [...String(text).matchAll(/(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{4}))?/g)];
+  if (!found.length || found.length > 2) return { error: 'Không đọc được ngày. Hãy gửi theo dạng: 01/11/2026 - 10/11/2026 (hoặc 1 ngày: 10/11/2026).' };
+  const toDate = ([, d, mo, y]) => {
+    const year = y ? +y : ty;
+    const dt = new Date(Date.UTC(year, +mo - 1, +d));
+    return dt.getUTCFullYear() === year && dt.getUTCMonth() === +mo - 1 && dt.getUTCDate() === +d ? dt : null;
+  };
+  const a = toDate(found[0]);
+  const b = found[1] ? toDate(found[1]) : a;
+  if (!a || !b) return { error: 'Có ngày không tồn tại trong lịch (ví dụ 31/02). Hãy gửi lại.' };
+  if (a > b) return { error: 'Ngày bắt đầu phải trước hoặc bằng ngày kết thúc. Hãy gửi lại.' };
+  if ((b - a) / 864e5 > 366) return { error: 'Khoảng thời gian tối đa là 366 ngày. Hãy gửi lại.' };
+  return { from: fmtDate(a), to: fmtDate(b) };
 }

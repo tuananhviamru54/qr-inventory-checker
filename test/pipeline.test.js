@@ -8,9 +8,9 @@ import { startMock } from './mock-server.js';
 import { withDefaults } from '../src/config.js';
 import { runPipeline } from '../src/index.js';
 import { LoginError } from '../src/amis.js';
-import { parseNumber, resolvePeriod, totp } from '../src/util.js';
+import { parseNumber, resolvePeriod, totp, parseDateRange } from '../src/util.js';
 import { blockReason, forbiddenLabel } from '../src/readonly.js';
-import { handleUpdate } from '../src/bot.js';
+import { handleUpdate, handleCallbackData, parseSalesIntent, MENU, COMMANDS } from '../src/bot.js';
 import { Telegram } from '../src/telegram.js';
 import { Supervisor } from '../src/supervisor-client.js';
 
@@ -324,7 +324,153 @@ test('agent giám sát độc lập: AI chặn nút và yêu cầu ghi mà luậ
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+async function writeSalesWorkbook(root, { totalDoanhSo = 7098100 } = {}) {
+  fs.mkdirSync(path.join(root, 'data'), { recursive: true });
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Doanh số');
+  ws.addRow(['TỔNG HỢP BÁN HÀNG THEO MẶT HÀNG']);
+  ws.addRow(['Từ ngày 01/11/2026 đến ngày 15/11/2026']);
+  ws.addRow([]);
+  ws.addRow(['Mã hàng', 'Tên hàng', 'ĐVT', 'Số lượng bán', 'Doanh số bán', 'Chiết khấu', 'SL trả lại', 'Giá trị trả lại', 'Giá trị giảm giá', 'Doanh thu thuần', 'Tiền vốn', 'Lãi gộp', 'Tỷ lệ lãi gộp (%)']);
+  ws.addRow(['A12_2', 'Ecoplast_Nẹp cạnh A12 (2*2500)', 'thanh', 100, 2098100, 546345, 0, 0, 0, 1551755, 1284600, 267155, 17.2]);
+  ws.addRow(['SP9', 'Hàng B', 'cái', 10, 5000000, 0, 0, 0, 0, 5000000, 3000000, 2000000, 40]);
+  ws.addRow(['Tổng cộng', null, null, 110, totalDoanhSo, 546345, 0, 0, 0, 6551755, 4284600, 2267155]);
+  await wb.xlsx.writeFile(path.join(root, 'data', 'doanh_so.xlsx'));
+}
+
+const salesFileConfig = (mock, root) => {
+  const config = makeConfig(mock, root);
+  const src = config.sources.find((x) => x.id === 'doanh_so');
+  src.type = 'file'; src.path = 'data/doanh_so.xlsx'; delete src.steps;
+  return config;
+};
+const sentBodies = (mock) => mock.state.telegram.filter((c) => c.method === 'sendMessage').map((c) => JSON.parse(c.text));
+
+test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, nút → lệnh, chọn kỳ doanh số', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    const config = makeConfig(mock, root);
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    await handleUpdate(config, tg, '/start', { state: { awaitingRange: null } });
+    const start = sentBodies(mock).at(-1);
+    assert.deepEqual(start.reply_markup.keyboard.flat().map((b) => b.text),
+      ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Báo cáo doanh số', '❓ Hướng dẫn']);
+    assert.equal(start.reply_markup.is_persistent, true);
+    assert.deepEqual(MENU.keyboard.flat().length, 4);
+    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'baocao', 'doanhso', 'trogiup']);
+    await tg.setCommands(COMMANDS);
+    assert.ok(mock.state.telegram.some((c) => c.method === 'setMyCommands'));
+
+    // bấm nút "Báo cáo doanh số" → bảng chọn kỳ với đủ 6 lựa chọn
+    await handleUpdate(config, tg, '💰 Báo cáo doanh số', { state: { awaitingRange: null } });
+    const picker = sentBodies(mock).at(-1);
+    assert.deepEqual(picker.reply_markup.inline_keyboard.flat().map((b) => [b.text, b.callback_data]), [
+      ['Hôm nay', 's:today'], ['Hôm qua', 's:yesterday'], ['Tuần này', 's:thisWeek'],
+      ['Tháng này', 's:thisMonth'], ['Tháng trước', 's:lastMonth'], ['📅 Tùy chọn ngày', 's:custom'],
+    ]);
+    assert.equal(mock.state.exports.length, 0); // mới chỉ hiện bảng chọn, chưa vào AMIS
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối chiếu tổng', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    await writeSalesWorkbook(root);
+    const config = salesFileConfig(mock, root);
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    const opts = { state: { awaitingRange: null } };
+    const last = () => sentBodies(mock).at(-1);
+
+    await handleCallbackData(config, tg, 's:thisMonth', opts);
+    let m = last();
+    assert.match(m.text, /💰 <b>Báo cáo doanh số — Tháng này<\/b>/);
+    assert.match(m.text, /Doanh số bán<\/b>: 7\.098\.100 đ \(≈ 7,1 triệu\)/);
+    assert.match(m.text, /− Chiết khấu: 546\.345 đ/);
+    assert.match(m.text, /Doanh thu thuần<\/b>: 6\.551\.755 đ \(≈ 6,6 triệu\)/);
+    assert.match(m.text, /Lãi gộp: 2\.267\.155 đ \(34,6%\)/);
+    assert.match(m.text, /2 mặt hàng có phát sinh/);
+    assert.ok(m.text.indexOf('SP9') < m.text.indexOf('A12_2')); // xếp theo doanh thu thuần giảm dần
+    assert.match(m.text, /✔ Đã đối chiếu: tổng các dòng khớp dòng "Tổng cộng" của AMIS/);
+    const month = resolvePeriod('thisMonth');
+    assert.match(m.text, new RegExp(`${month.fromDate} – ${month.toDate}`));
+    assert.deepEqual(m.reply_markup.inline_keyboard[0].map((b) => b.callback_data), [`r:${month.fromDate.replace(/\//g, '')}:${month.toDate.replace(/\//g, '')}`, 's:menu']);
+
+    for (const [data, label] of [['s:today', 'Hôm nay'], ['s:yesterday', 'Hôm qua'], ['s:thisWeek', 'Tuần này'], ['s:lastMonth', 'Tháng trước']]) {
+      await handleCallbackData(config, tg, data, opts);
+      assert.match(last().text, new RegExp(`Báo cáo doanh số — ${label}`));
+    }
+
+    // tùy chọn ngày: bấm → bot hỏi → gõ sai thì báo lỗi và vẫn chờ → gõ đúng thì ra báo cáo
+    await handleCallbackData(config, tg, 's:custom', opts);
+    assert.match(last().text, /Tùy chọn ngày/);
+    await handleUpdate(config, tg, '31/02/2026', opts);
+    assert.match(last().text, /không tồn tại trong lịch/);
+    assert.ok(opts.state.awaitingRange);
+    await handleUpdate(config, tg, '01/11/2026 - 10/11/2026', opts);
+    assert.match(last().text, /Báo cáo doanh số — 01\/11\/2026 – 10\/11\/2026/);
+    assert.equal(opts.state.awaitingRange, null);
+    await handleCallbackData(config, tg, 's:custom', opts);
+    await handleUpdate(config, tg, 'huỷ', opts);
+    assert.match(last().text, /Đã huỷ chọn ngày/);
+
+    // gõ tự do và lệnh có tham số
+    await handleUpdate(config, tg, 'doanh thu tuần này thế nào', opts);
+    assert.match(last().text, /Báo cáo doanh số — Tuần này/);
+    await handleUpdate(config, tg, '/doanhso hôm qua', opts);
+    assert.match(last().text, /Báo cáo doanh số — Hôm qua/);
+    await handleUpdate(config, tg, 'doanh số', opts);
+    assert.ok(last().reply_markup.inline_keyboard.length === 3); // hỏi lại kỳ
+    assert.equal(parseSalesIntent('tồn kho còn bao nhiêu'), null);
+
+    // Tổng trên AMIS khác tổng các dòng → cảnh báo, không im lặng
+    await writeSalesWorkbook(root, { totalDoanhSo: 9999999 });
+    await handleCallbackData(config, tg, 's:today', opts);
+    assert.match(last().text, /⚠️ Tổng các dòng khác dòng "Tổng cộng" của AMIS ở: doanh_so/);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('báo cáo doanh số qua AMIS: ngày của kỳ được điền vào báo cáo, dùng lại dữ liệu theo kỳ, nút làm mới', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    const config = makeConfig(mock, root);
+    const src = config.sources.find((x) => x.id === 'doanh_so');
+    src.steps = structuredClone(config.sources[0].steps); // máy chủ giả lập xuất file tồn kho → báo cáo sẽ "thiếu cột doanh số"
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    const opts = { state: { awaitingRange: null } };
+
+    await handleCallbackData(config, tg, 's:thisWeek', opts);
+    const week = resolvePeriod('thisWeek');
+    assert.deepEqual(mock.state.exports, [{ from: week.fromDate, to: week.toDate }]);
+    assert.match(sentBodies(mock).at(-1).text, /thiếu cột/);
+    assert.ok(fs.existsSync(path.join(root, 'downloads', `doanh_so__${week.fromDate.replace(/\//g, '-')}_${week.toDate.replace(/\//g, '-')}.xlsx`)));
+
+    await handleCallbackData(config, tg, 's:thisWeek', opts);       // cùng kỳ, còn mới → dùng lại, không vào AMIS
+    assert.equal(mock.state.exports.length, 1);
+    await handleUpdate(config, tg, '/doanhso 01/11/2026 - 05/11/2026', opts); // kỳ khác → xuất mới với đúng ngày
+    assert.deepEqual(mock.state.exports.at(-1), { from: '01/11/2026', to: '05/11/2026' });
+    await handleCallbackData(config, tg, 'r:01112026:05112026', opts);       // nút làm mới → luôn xuất lại
+    assert.equal(mock.state.exports.length, 3);
+    assert.deepEqual(mock.state.exports.at(-1), { from: '01/11/2026', to: '05/11/2026' });
+    // chạy báo cáo tồn kho không bị ảnh hưởng bởi nguồn doanh số
+    const out = await runPipeline(config, { log: () => {}, send: false, download: false });
+    assert.ok(!('doanh_so' in out.datasets));
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('tiện ích', async () => {
+  assert.deepEqual(resolvePeriod('thisWeek', new Date('2026-11-14T05:00:00Z')), { fromDate: '09/11/2026', toDate: '14/11/2026', today: '14/11/2026' }); // thứ 7 → từ thứ 2
+  assert.equal(resolvePeriod('thisWeek', new Date('2026-11-15T05:00:00Z')).fromDate, '09/11/2026');                                                       // chủ nhật
+  assert.equal(resolvePeriod('thisWeek', new Date('2026-11-09T05:00:00Z')).fromDate, '09/11/2026');                                                       // thứ 2
+  assert.deepEqual(parseDateRange('01/11/2026 - 10/11/2026'), { from: '01/11/2026', to: '10/11/2026' });
+  assert.deepEqual(parseDateRange('1/11 đến 10/11', new Date('2026-11-14T05:00:00Z')), { from: '01/11/2026', to: '10/11/2026' });
+  assert.deepEqual(parseDateRange('10-11-2026'), { from: '10/11/2026', to: '10/11/2026' });
+  assert.match(parseDateRange('31/02/2026').error, /không tồn tại/);
+  assert.match(parseDateRange('10/11/2026 - 01/11/2026').error, /trước hoặc bằng/);
+  assert.match(parseDateRange('01/01/2024 - 01/01/2026').error, /366 ngày/);
+  assert.match(parseDateRange('xin chào').error, /Không đọc được ngày/);
   assert.equal(blockReason('GET', 'https://x/api/voucher/delete'), null);
   assert.ok(blockReason('PUT', 'https://x/api/report'));
   assert.ok(blockReason('POST', 'https://x/api/INVoucher/SaveVoucher'));

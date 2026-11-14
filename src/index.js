@@ -30,10 +30,12 @@ export function telegramOf(config) {
  * @param opts.download  false = dùng lại file đã có trong thư mục downloads/
  * @param opts.onStage   hàm nhận tên giai đoạn ('login' | 'export' | 'reuse' | 'check') để hiển thị tiến độ
  */
-export async function collect(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null } = {}) {
-  const period = resolvePeriod(config.period);
+export async function collect(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {} } = {}) {
+  const period = periodOverride ?? resolvePeriod(config.period);
   const datasets = {};
-  const amisSources = config.sources.filter((s) => s.type === 'amis');
+  // mặc định bỏ qua các nguồn onDemand (ví dụ báo cáo doanh số chỉ lấy khi được yêu cầu)
+  const active = config.sources.filter((s) => (sourceIds ? sourceIds.includes(s.id) : !s.onDemand));
+  const amisSources = active.filter((s) => s.type === 'amis');
   const files = {};
   let blocked = [];
   let supervision = null;
@@ -56,7 +58,7 @@ export async function collect(config, { download = true, headed = false, log = c
       for (const src of amisSources) {
         log(`→ Xuất báo cáo: ${src.name}`);
         try {
-          files[src.id] = await session.exportReport(src, { ...period, targetDb: config.secrets.targetDb ?? '' });
+          files[src.id] = await session.exportReport(src, { ...period, targetDb: config.secrets.targetDb ?? '' }, { fileName: fileKeys[src.id] });
           log(`✓ Đã lưu ${path.relative(config.root, files[src.id])}`);
         } catch (e) {
           const shot = await session.screenshot(`loi-${src.id}`);
@@ -82,10 +84,10 @@ export async function collect(config, { download = true, headed = false, log = c
 
   // 2. Đọc dữ liệu
   await onStage('check');
-  for (const src of config.sources) {
+  for (const src of active) {
     if (datasets[src.id]) continue;
     const file = src.type === 'amis'
-      ? files[src.id] ?? findDownloaded(config.dirs.downloads, src.id)
+      ? files[src.id] ?? findDownloaded(config.dirs.downloads, fileKeys[src.id] ?? src.id)
       : path.resolve(config.root, src.path);
     if (!file || !fs.existsSync(file)) {
       datasets[src.id] = { id: src.id, name: src.name, missing: true };
@@ -107,11 +109,14 @@ export async function collect(config, { download = true, headed = false, log = c
 
 /** Tuổi (phút) của file AMIS cũ nhất trong downloads/, hoặc Infinity nếu thiếu file. */
 export function dataAgeMinutes(config) {
-  const ages = config.sources.filter((s) => s.type === 'amis').map((s) => {
-    const f = findDownloaded(config.dirs.downloads, s.id);
-    return f ? (Date.now() - fs.statSync(f).mtimeMs) / 60000 : Infinity;
-  });
+  const ages = config.sources.filter((s) => s.type === 'amis' && !s.onDemand).map((s) => fileAgeMinutes(config, s.id));
   return ages.length ? Math.max(...ages) : Infinity;
+}
+
+/** Tuổi (phút) của file đã tải có tên `key`, hoặc Infinity nếu chưa có. */
+export function fileAgeMinutes(config, key) {
+  const f = findDownloaded(config.dirs.downloads, key);
+  return f ? (Date.now() - fs.statSync(f).mtimeMs) / 60000 : Infinity;
 }
 
 /**
