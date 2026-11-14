@@ -8,6 +8,7 @@ import { installNetworkGuard, assertStepAllowed, assertElementAllowed, ReadOnlyV
 import { Supervisor } from './supervisor-client.js';
 
 export class LoginError extends Error {}
+const t0 = (x) => x; // URL bước goto không dùng biến
 
 const DEFAULT_SELECTORS = {
   username: 'input[name="username" i], input[name="email" i], input[type="email"], input[autocomplete="username"]',
@@ -174,6 +175,55 @@ export class AmisSession {
     throw new Error(`Dữ liệu kế toán đang mở không phải "${targetDb}". Chạy \`npm run login\`, chuyển sang đúng dữ liệu trong trình duyệt rồi chạy lại.`);
   }
 
+  /** Cuộn danh sách xổ xuống đang mở thêm `dy` px. @returns {Promise<boolean>} false nếu đã hết */
+  async scrollDropdown(dy) {
+    const moved = await this.page.evaluate((delta) => {
+      let el = [...document.querySelectorAll('.dropdown-item-td--text')].find((e) => e.offsetParent);
+      while (el && !(el.scrollHeight > el.clientHeight + 4 && getComputedStyle(el).overflowY !== 'visible')) el = el.parentElement;
+      if (!el) return false;
+      const before = el.scrollTop;
+      el.scrollTop += delta;
+      return el.scrollTop > before;
+    }, dy);
+    await this.page.waitForTimeout(200);
+    return moved;
+  }
+
+  /**
+   * Đọc toàn bộ danh sách Nhóm VTHH từ hộp tham số của báo cáo `source` (cần source.groups.prefix).
+   * Chỉ mở hộp và đọc, không chọn gì. @returns {{code,name,level,parent}[]}
+   */
+  async readItemGroups(source) {
+    const { page } = this;
+    const url = t0(source.steps.find((x) => x.goto).goto);
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.locator("button:has-text('Chọn tham số')").first().waitFor();
+    await page.waitForTimeout(3000);
+    if (!(await this.visible("button:has-text('Xem báo cáo')"))) await page.locator("button:has-text('Chọn tham số')").first().click();
+    await page.locator("button:has-text('Xem báo cáo')").first().waitFor();
+    await page.locator(`[data-testid='${source.groups.prefix}-di-triggerclick']`).first().click();
+    await page.waitForTimeout(1500);
+    const seen = new Map();
+    for (let i = 0; i < 40; i++) {
+      const rows = await page.evaluate(() => {
+        const cells = [...document.querySelectorAll('.dropdown-item-td--text')].filter((e) => e.offsetParent);
+        const byY = new Map();
+        for (const c of cells) { const r = c.getBoundingClientRect(); const k = Math.round(r.y); (byY.get(k) ?? byY.set(k, []).get(k)).push({ x: Math.round(r.x), t: c.innerText.trim() }); }
+        return [...byY.values()].map((v) => v.sort((a, b) => a.x - b.x)).map((v) => ({ code: v[0]?.t, name: v[1]?.t ?? v[0]?.t, x: v[0]?.x }));
+      });
+      for (const r of rows) if (r.code && !seen.has(r.code)) seen.set(r.code, r);
+      if (!(await this.scrollDropdown(90))) break;
+    }
+    const all = [...seen.values()];
+    const base = Math.min(...all.map((r) => r.x));
+    let parent = null;
+    return all.map((r) => {
+      const level = r.x > base + 4 ? 1 : 0;
+      if (level === 0) parent = r.code;
+      return { code: r.code, name: r.name, level, parent: level ? parent : null };
+    });
+  }
+
   /** Chạy danh sách bước của 1 báo cáo, trả về đường dẫn file đã tải. */
   async exportReport(source, vars, { fileName } = {}) {
     const { page } = this;
@@ -244,6 +294,33 @@ export class AmisSession {
             const order = num(fromV) <= num(await toLoc.inputValue()) ? [[fromLoc, fromV], [toLoc, toV]] : [[toLoc, toV], [fromLoc, fromV]];
             for (const [loc, value] of order) await setVerified(loc, value);
             if ((await fromLoc.inputValue()) !== fromV || (await toLoc.inputValue()) !== toV) throw new Error(`khoảng ngày sau khi đặt không đúng ${fromV} – ${toV}`);
+            break;
+          }
+          case 'setGroups': {
+            // { prefix, values } — chọn đúng các Nhóm VTHH trong `values` (mã ngăn bằng '|'; rỗng = không lọc theo nhóm).
+            // AMIS nhớ lựa chọn lần trước nên luôn bỏ hết nhóm đang chọn rồi chọn lại từ đầu.
+            const wanted = t(arg.values).split('|').map((x) => x.trim()).filter(Boolean);
+            const prefix = arg.prefix;
+            const chips = page.locator(`[data-testid^='${prefix}-di-deselect-']`);
+            this.supervisor.ask({ kind: 'fill', selector: 'setGroups', value: wanted.join(',') || '(tất cả nhóm)' }).catch(() => {});
+            for (let n = 0; n < 40 && (await chips.count()) > 0; n++) { await chips.first().click(); await page.waitForTimeout(300); }
+            if ((await chips.count()) > 0) throw new Error('không bỏ chọn hết được các nhóm cũ');
+            if (wanted.length) {
+              const arrow = page.locator(`[data-testid='${prefix}-di-triggerclick']`).first();
+              const rows = page.locator('.dropdown-item-td--text');
+              if (!(await rows.first().isVisible().catch(() => false))) await arrow.click();
+              await page.waitForTimeout(800);
+              for (const code of wanted) {
+                const row = rows.filter({ hasText: new RegExp(`^${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).first();
+                for (let i = 0; i < 30 && !(await row.count()); i++) await this.scrollDropdown(90);
+                if (!(await row.count())) throw new Error(`không thấy nhóm "${code}" trong danh sách Nhóm VTHH`);
+                await row.click();
+                await page.waitForTimeout(700);
+              }
+              if ((await chips.count()) !== wanted.length) throw new Error(`đã chọn ${await chips.count()}/${wanted.length} nhóm`);
+              await arrow.click(); // đóng danh sách
+              await page.waitForTimeout(500);
+            }
             break;
           }
           case 'ensureChecked': { // tích ô nếu CHƯA tích (đọc trạng thái thật); không bao giờ bỏ tích. AMIS nhớ lựa chọn lần trước nên không được bấm mù.

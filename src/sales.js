@@ -13,8 +13,9 @@ function short(n) {
 const money = (n) => (short(n) ? `${vnd(n)} (${short(n)})` : vnd(n));
 const sum = (rows, f) => rows.reduce((s, r) => s + (Number(r[f]) || 0), 0);
 
-export function buildSalesMessage({ label, period, targetDb, dataset, updatedAt, top = 10 }) {
+export function buildSalesMessage({ label, period, targetDb, dataset, updatedAt, groups = [], top = 10 }) {
   const lines = [`💰 <b>Báo cáo doanh số — ${escapeHtml(label)}</b>`, `🗓 ${period.fromDate === period.toDate ? period.fromDate : `${period.fromDate} – ${period.toDate}`}${targetDb ? ` · 🗄 ${escapeHtml(targetDb)}` : ''}`];
+  lines.push(`📦 Nhóm VTHH: ${groups.length ? escapeHtml(groups.join(', ')) : 'tất cả nhóm'}`);
   if (updatedAt) lines.push(`🕒 Số liệu AMIS lấy lúc ${updatedAt}`);
   lines.push('');
 

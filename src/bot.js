@@ -1,6 +1,6 @@
 // Bot Telegram: nhận câu hỏi/lệnh, hiện tiến độ, trả lời sau khi kế toán trưởng (AI) kiểm soát.
 // Chỉ phục vụ đúng chat TELEGRAM_CHAT_ID; tin từ chat khác bị bỏ qua.
-import { collect, dataAgeMinutes, fileAgeMinutes, runPipeline, telegramOf } from './index.js';
+import { collect, dataAgeMinutes, fileAgeMinutes, refreshGroups, runPipeline, telegramOf } from './index.js';
 import { Progress } from './progress.js';
 import { aiEnabled, describeAiError } from './ai.js';
 import { draftAnswer } from './agents/answer.js';
@@ -9,6 +9,7 @@ import { reviewDraft, reviewSection } from './agents/reviewer.js';
 import { answerByRules, RULE_HELP } from './agents/lookup.js';
 import { supervisionSection } from './report.js';
 import { buildSalesMessage } from './sales.js';
+import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,6 +34,7 @@ export const COMMANDS = [
   { command: 'moi', description: 'Lấy báo cáo mới nhất (làm mới dữ liệu từ AMIS)' },
   { command: 'baocao', description: 'Báo cáo đối chiếu tồn kho' },
   { command: 'doanhso', description: 'Báo cáo doanh số kèm doanh thu' },
+  { command: 'capnhatnhom', description: 'Cập nhật danh sách Nhóm VTHH từ AMIS' },
   { command: 'trogiup', description: 'Hướng dẫn sử dụng' },
 ];
 
@@ -131,6 +133,65 @@ const periodOf = (key) => ({ ...resolvePeriod(key), label: PERIOD_LABELS[key] })
 const ddmmyyyy = (s) => s.replace(/\//g, '');
 const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(ms);
 
+/** Bước chọn Nhóm VTHH sau khi đã có kỳ: hiện danh sách nhóm của AMIS để bấm chọn (không chọn gì = tất cả nhóm). */
+export async function beginSales(config, tg, range, opts = {}) {
+  const list = loadGroups(config);
+  if (!list.length) return handleSales(config, tg, range, opts); // chưa có danh sách nhóm → lấy tất cả
+  const state = opts.state ?? defaultState;
+  state.pick = { range, list, selected: new Set() };
+  await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
+  return null;
+}
+
+function groupText({ range, list, selected }) {
+  const named = list.filter((g) => g.name !== g.code).map((g) => `${g.code} = ${g.name}`).join(' · ');
+  return [
+    `📦 <b>Chọn Nhóm VTHH</b> — kỳ <b>${escapeHtml(range.label)}</b>`,
+    'Bấm để chọn hoặc bỏ chọn (chọn được nhiều nhóm). Chọn nhóm cha như <b>HH</b> là gồm cả các nhóm con. Không chọn gì thì xem tất cả nhóm.',
+    named ? `<i>${escapeHtml(named)}</i>` : '',
+    selected.size ? `Đã chọn: <b>${escapeHtml([...selected].join(', '))}</b>` : '',
+  ].filter(Boolean).join('\n');
+}
+
+export function groupKeyboard({ list, selected }) {
+  const rows = [[{ text: '📊 Xem TẤT CẢ nhóm', callback_data: 'g:a' }]];
+  let row = [];
+  list.forEach((g, i) => {
+    row.push({ text: `${selected.has(g.code) ? '✔ ' : ''}${g.code}`, callback_data: `g:t:${i}` });
+    if (row.length === 3) { rows.push(row); row = []; }
+  });
+  if (row.length) rows.push(row);
+  const ctl = [];
+  if (selected.size) { ctl.push({ text: `✅ Xem báo cáo (${selected.size} nhóm)`, callback_data: 'g:ok' }); ctl.push({ text: '↩ Bỏ chọn', callback_data: 'g:c' }); }
+  ctl.push({ text: '✖ Huỷ', callback_data: 'g:x' });
+  rows.push(ctl);
+  return { inline_keyboard: rows };
+}
+
+/**
+ * Xử lý 1 lần bấm trên bảng chọn nhóm (chỉ sửa giao diện).
+ * @returns {{range, groups:string[]}|null} khi đã chọn xong và cần lập báo cáo
+ */
+export async function applyGroupPick(tg, state, data, messageId) {
+  const pick = state.pick;
+  const done = (text) => tg.editMessage(messageId, text, { reply_markup: { inline_keyboard: [] } });
+  if (!pick) { await done('Bảng chọn này đã hết hạn. Hãy bấm 💰 Báo cáo doanh số để chọn lại.'); return null; }
+  const [, act, arg] = String(data).split(':');
+  const refresh = () => tg.editMessage(messageId, groupText(pick), { reply_markup: groupKeyboard(pick) });
+  if (act === 't') {
+    const g = pick.list[Number(arg)];
+    if (g) { pick.selected.has(g.code) ? pick.selected.delete(g.code) : pick.selected.add(g.code); await refresh(); }
+    return null;
+  }
+  if (act === 'c') { pick.selected.clear(); await refresh(); return null; }
+  if (act === 'x') { state.pick = null; await done('Đã huỷ.'); return null; }
+  const groups = act === 'ok' ? [...pick.selected] : act === 'a' ? [] : null;
+  if (groups === null || (act === 'ok' && !groups.length)) return null;
+  state.pick = null;
+  await done(`✅ Kỳ <b>${escapeHtml(pick.range.label)}</b> · Nhóm VTHH: <b>${escapeHtml(groups.length ? groups.join(', ') : 'tất cả nhóm')}</b> — đang lập báo cáo…`);
+  return { range: pick.range, groups };
+}
+
 /** Hiểu câu "doanh số hôm qua", "doanh thu tuần này", "doanh số 01/11 - 10/11"... @returns {{key}|{custom}|{picker:true}|null} */
 export function parseSalesIntent(text, now = new Date()) {
   const n = ` ${norm(text)} `;
@@ -149,15 +210,15 @@ async function sendPeriodPicker(tg, note = '') {
   await tg.sendMessage(`${note ? `${note}\n\n` : ''}💰 <b>Báo cáo doanh số</b> (kèm doanh thu thuần, lãi gộp)\nChọn kỳ cần xem:`, { reply_markup: PERIOD_KEYBOARD });
 }
 
-export async function handleSales(config, tg, range, { fresh = false, headed } = {}) {
+export async function handleSales(config, tg, range, { fresh = false, headed, groups = [] } = {}) {
   const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
-  const fileKey = `doanh_so__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}`;
+  const fileKey = `doanh_so__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}${groups.length ? `__${groupsKey(groups)}` : ''}`;
   const reuse = !fresh && fileAgeMinutes(config, fileKey) <= config.bot.maxDataAgeMinutes;
   const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'send'];
-  const progress = new Progress(tg, { title: `Đang lập báo cáo doanh số — ${range.label}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  const progress = new Progress(tg, { title: `Đang lập báo cáo doanh số — ${range.label}${groups.length ? ` (${groups.join(', ')})` : ''}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
   await progress.start();
   try {
-    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period, sourceIds: ['doanh_so'], fileKeys: { doanh_so: fileKey } });
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period, sourceIds: ['doanh_so'], fileKeys: { doanh_so: fileKey }, vars: { groups: groups.join('|') } });
     await progress.stage('send');
     const ds = data.datasets.doanh_so;
     if (ds.error || ds.missing) {
@@ -167,12 +228,12 @@ export async function handleSales(config, tg, range, { fresh = false, headed } =
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
-      buildSalesMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt }),
+      buildSalesMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt, groups }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
       reply_markup: { inline_keyboard: [[
-        { text: '🔄 Làm mới số liệu này', callback_data: `r:${ddmmyyyy(range.fromDate)}:${ddmmyyyy(range.toDate)}` },
+        { text: '🔄 Làm mới số liệu này', callback_data: `r:${ddmmyyyy(range.fromDate)}:${ddmmyyyy(range.toDate)}${groups.length ? `:${groups.map((c) => loadGroups(config).findIndex((g) => g.code === c)).filter((i) => i >= 0).join('-')}` : ''}` },
         { text: '📅 Chọn kỳ khác', callback_data: 's:menu' },
       ]] },
     });
@@ -192,26 +253,32 @@ export async function handleSales(config, tg, range, { fresh = false, headed } =
 /** Xử lý lần bấm nút inline của bot: s:<kỳ> chọn kỳ doanh số, r:<từ>:<đến> làm mới. */
 export async function handleCallbackData(config, tg, data, opts = {}) {
   const state = opts.state ?? defaultState;
-  const [kind, a, b] = String(data).split(':');
+  const [kind, a, b, c] = String(data).split(':');
   if (kind === 's') {
     if (a === 'menu') return sendPeriodPicker(tg);
     if (a === 'custom') {
       state.awaitingRange = Date.now(); // vẫn cho phép gõ tay khoảng ngày
       return sendCalendar(tg, state);
     }
-    if (PERIOD_LABELS[a]) return handleSales(config, tg, periodOf(a), opts);
+    if (PERIOD_LABELS[a]) return beginSales(config, tg, periodOf(a), opts);
     return tg.sendMessage('Lựa chọn không hợp lệ.');
   }
   if (kind === 'c') {
     const range = await applyCalendar(tg, state, data, opts.messageId);
-    return range ? handleSales(config, tg, range, opts) : undefined;
+    return range ? beginSales(config, tg, range, opts) : undefined;
+  }
+  if (kind === 'g') {
+    const run = await applyGroupPick(tg, state, data, opts.messageId);
+    return run ? handleSales(config, tg, run.range, { ...opts, groups: run.groups }) : undefined;
   }
   if (kind === 'r') {
     const d = (x) => `${x.slice(0, 2)}/${x.slice(2, 4)}/${x.slice(4)}`;
     if (!/^\d{8}$/.test(a ?? '') || !/^\d{8}$/.test(b ?? '')) return tg.sendMessage('Yêu cầu làm mới không hợp lệ.');
     const fromDate = d(a), toDate = d(b);
     const key = Object.keys(PERIOD_LABELS).find((k) => resolvePeriod(k).fromDate === fromDate && resolvePeriod(k).toDate === toDate);
-    return handleSales(config, tg, { fromDate, toDate, label: key ? PERIOD_LABELS[key] : `${fromDate} – ${toDate}` }, { ...opts, fresh: true });
+    const all = loadGroups(config);
+    const groups = (c ?? '').split('-').filter((x) => /^\d+$/.test(x)).map((x) => all[Number(x)]?.code).filter(Boolean);
+    return handleSales(config, tg, { fromDate, toDate, label: key ? PERIOD_LABELS[key] : `${fromDate} – ${toDate}` }, { ...opts, fresh: true, groups });
   }
   return tg.sendMessage('Lệnh không hợp lệ.');
 }
@@ -297,7 +364,7 @@ function tablesFor(datasets) {
   return Object.fromEntries(Object.values(datasets).filter((d) => d.rows?.length).map((d) => [d.name, d.rows]));
 }
 
-const defaultState = { awaitingRange: null, cal: null };
+const defaultState = { awaitingRange: null, cal: null, pick: null };
 const AWAIT_MS = 10 * 60 * 1000;
 
 export async function handleUpdate(config, tg, text, opts = {}) {
@@ -314,13 +381,18 @@ export async function handleUpdate(config, tg, text, opts = {}) {
       const r = parseDateRange(text);
       if (r.error) return tg.sendMessage(`⚠️ ${escapeHtml(r.error)}\nGõ <i>huỷ</i> để thôi.`);
       state.awaitingRange = null; state.cal = null;
-      return handleSales(config, tg, { fromDate: r.from, toDate: r.to, label: r.from === r.to ? r.from : `${r.from} – ${r.to}` }, opts);
+      return beginSales(config, tg, { fromDate: r.from, toDate: r.to, label: r.from === r.to ? r.from : `${r.from} – ${r.to}` }, opts);
     }
   }
 
   if (cmd === '/start' || cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config), { reply_markup: MENU });
   if (cmd === '/baocao') return handleReport(config, tg, { fresh: false, ...opts });
   if (cmd === '/moi') return handleReport(config, tg, { fresh: true, ...opts });
+  if (cmd === '/capnhatnhom') {
+    await tg.sendMessage('⏳ Đang đọc danh sách Nhóm VTHH từ AMIS (chỉ đọc)…');
+    const list = await refreshGroups(config, { tg });
+    return tg.sendMessage(`✅ Đã cập nhật <b>${list.length}</b> nhóm VTHH:\n${escapeHtml(list.map((g) => `${g.level ? '   ' : ''}${g.code}${g.name !== g.code ? ` — ${g.name}` : ''}`).join('\n'))}`);
+  }
   if (cmd === '/doanhso') {
     const arg = text.slice(cmd.length).trim();
     const intent = arg ? parseSalesIntent(`doanh so ${arg}`) : { picker: true };
@@ -334,15 +406,15 @@ export async function handleUpdate(config, tg, text, opts = {}) {
 }
 
 function salesIntent(config, tg, intent, opts) {
-  if (intent?.key) return handleSales(config, tg, periodOf(intent.key), opts);
-  if (intent?.custom) return handleSales(config, tg, { fromDate: intent.custom.from, toDate: intent.custom.to, label: intent.custom.from === intent.custom.to ? intent.custom.from : `${intent.custom.from} – ${intent.custom.to}` }, opts);
+  if (intent?.key) return beginSales(config, tg, periodOf(intent.key), opts);
+  if (intent?.custom) return beginSales(config, tg, { fromDate: intent.custom.from, toDate: intent.custom.to, label: intent.custom.from === intent.custom.to ? intent.custom.from : `${intent.custom.from} – ${intent.custom.to}` }, opts);
   return sendPeriodPicker(tg, intent?.error ? `⚠️ ${escapeHtml(intent.error)}` : '');
 }
 
 export async function runBot(config, opts = {}) {
   const tg = telegramOf(config);
   const owner = String(config.secrets.telegramChatId);
-  const state = { awaitingRange: null, cal: null };
+  const state = { awaitingRange: null, cal: null, pick: null };
   opts = { ...opts, state };
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
@@ -373,7 +445,11 @@ export async function runBot(config, opts = {}) {
         if (/^c:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           const range = await applyCalendar(tg, state, cq.data, cq.message.message_id).catch(() => null); // chỉ sửa giao diện → làm ngay cả khi bot đang bận
-          if (range) dispatch(() => handleSales(config, tg, range, opts));
+          if (range) dispatch(() => beginSales(config, tg, range, opts));
+        } else if (/^g:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
+          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
+          const run = await applyGroupPick(tg, state, cq.data, cq.message.message_id).catch(() => null);
+          if (run) dispatch(() => handleSales(config, tg, run.range, { ...opts, groups: run.groups }));
         } else if (/^[sr]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           dispatch(() => handleCallbackData(config, tg, cq.data, opts));

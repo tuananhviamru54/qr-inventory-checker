@@ -10,7 +10,8 @@ import { runPipeline } from '../src/index.js';
 import { LoginError } from '../src/amis.js';
 import { parseNumber, resolvePeriod, totp, parseDateRange } from '../src/util.js';
 import { blockReason, forbiddenLabel } from '../src/readonly.js';
-import { handleUpdate, handleCallbackData, parseSalesIntent, buildCalendar, MENU, COMMANDS } from '../src/bot.js';
+import { handleUpdate, handleCallbackData, parseSalesIntent, buildCalendar, groupKeyboard, MENU, COMMANDS } from '../src/bot.js';
+import { groupsKey, loadGroups } from '../src/groups.js';
 import { Telegram } from '../src/telegram.js';
 import { Supervisor } from '../src/supervisor-client.js';
 
@@ -358,7 +359,7 @@ test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, 
       ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Báo cáo doanh số', '❓ Hướng dẫn']);
     assert.equal(start.reply_markup.is_persistent, true);
     assert.deepEqual(MENU.keyboard.flat().length, 4);
-    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'baocao', 'doanhso', 'trogiup']);
+    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'baocao', 'doanhso', 'capnhatnhom', 'trogiup']);
     await tg.setCommands(COMMANDS);
     assert.ok(mock.state.telegram.some((c) => c.method === 'setMyCommands'));
 
@@ -487,6 +488,72 @@ test('lịch chọn ngày bằng nút bấm: chọn đầu–cuối, 1 ngày, ch
     await press('c:x', opts);
     assert.match(edits().at(-1).text, /Đã huỷ chọn ngày/);
     assert.equal(opts.state.cal, null);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('chọn Nhóm VTHH trước khi lập báo cáo doanh số: chọn nhiều nhóm, bỏ chọn, xem tất cả, làm mới giữ nhóm', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    await writeSalesWorkbook(root);
+    fs.copyFileSync(new URL('../data/nhom_vthh.json', import.meta.url), path.join(root, 'data', 'nhom_vthh.json'));
+    const config = salesFileConfig(mock, root);
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    const opts = { state: { awaitingRange: null, cal: null, pick: null } };
+    const last = () => sentBodies(mock).at(-1);
+    const edits = () => mock.state.telegram.filter((c) => c.method === 'editMessageText').map((c) => JSON.parse(c.text)).filter((b) => b.message_id === 55);
+    const press = (d) => handleCallbackData(config, tg, d, { ...opts, messageId: 55 });
+    const groups = loadGroups(config);
+    assert.equal(groups.length, 19);
+    const idx = (code) => groups.findIndex((g) => g.code === code);
+
+    // chọn kỳ → hiện danh sách nhóm của AMIS (chưa vào AMIS)
+    await press('s:thisMonth');
+    const ask = last();
+    assert.match(ask.text, /Chọn Nhóm VTHH<\/b> — kỳ <b>Tháng này/);
+    assert.match(ask.text, /HH<\/b> là gồm cả các nhóm con/);
+    const labels = ask.reply_markup.inline_keyboard.flat().map((b) => b.text);
+    for (const c of ['CCDC', 'DV', 'HH', 'ALU', 'ECO', 'ECO+', 'NC ECO+', 'NBĐ', 'PENCO', 'NPVC', 'NVL', 'TTT', 'TPVC', 'TP']) assert.ok(labels.includes(c), `thiếu nút ${c}`);
+    assert.ok(labels.includes('📊 Xem TẤT CẢ nhóm') && !labels.some((t) => t.startsWith('✅ Xem báo cáo'))); // chưa chọn nhóm nào thì chưa có nút xem
+    assert.equal(mock.state.exports.length, 0);
+
+    // chọn ECO và PENCO → nút xem báo cáo (2 nhóm); bỏ ECO → còn 1 nhóm
+    await press(`g:t:${idx('ECO')}`);
+    await press(`g:t:${idx('PENCO')}`);
+    let kb = edits().at(-1).reply_markup.inline_keyboard.flat();
+    assert.deepEqual(kb.filter((b) => b.text.startsWith('✔')).map((b) => b.text), ['✔ ECO', '✔ PENCO']);
+    assert.ok(kb.some((b) => b.text === '✅ Xem báo cáo (2 nhóm)'));
+    await press(`g:t:${idx('ECO')}`);
+    assert.match(edits().at(-1).text, /Đã chọn: <b>PENCO<\/b>/);
+    await press(`g:t:${idx('NVL')}`);
+    await press('g:ok');
+    let m = last();
+    assert.match(m.text, /Báo cáo doanh số — Tháng này/);
+    assert.match(m.text, /📦 Nhóm VTHH: PENCO, NVL/);
+    assert.match(edits().at(-1).text, /Nhóm VTHH: <b>PENCO, NVL<\/b> — đang lập báo cáo/);
+    assert.equal(opts.state.pick, null);
+    // nút làm mới giữ nguyên nhóm đã chọn (mã hoá bằng vị trí nhóm)
+    const refresh = m.reply_markup.inline_keyboard[0][0].callback_data;
+    assert.match(refresh, new RegExp(`^r:\\d{8}:\\d{8}:${idx('PENCO')}-${idx('NVL')}$`));
+    await handleCallbackData(config, tg, refresh, opts);
+    assert.match(last().text, /📦 Nhóm VTHH: PENCO, NVL/);
+
+    // "Xem tất cả nhóm", bỏ chọn, huỷ, bảng hết hạn
+    await press('s:lastMonth');
+    await press('g:a');
+    assert.match(last().text, /📦 Nhóm VTHH: tất cả nhóm/);
+    await press('s:today');
+    await press(`g:t:${idx('HH')}`); await press('g:c');
+    assert.ok(!groupKeyboard(opts.state.pick).inline_keyboard.flat().some((b) => b.text.startsWith('✔')));
+    await press('g:x');
+    assert.match(edits().at(-1).text, /Đã huỷ/);
+    await press('g:ok');
+    assert.match(edits().at(-1).text, /đã hết hạn/);
+
+    // tên file lưu theo tập nhóm: cùng tập (khác thứ tự) → cùng khoá; tập khác → khoá khác; tất cả → rỗng
+    assert.equal(groupsKey(['A', 'B']), groupsKey(['B', 'A']));
+    assert.notEqual(groupsKey(['ECO']), groupsKey(['ECO+']));
+    assert.equal(groupsKey([]), '');
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

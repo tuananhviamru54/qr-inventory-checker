@@ -30,7 +30,7 @@ export function telegramOf(config) {
  * @param opts.download  false = dùng lại file đã có trong thư mục downloads/
  * @param opts.onStage   hàm nhận tên giai đoạn ('login' | 'export' | 'reuse' | 'check') để hiển thị tiến độ
  */
-export async function collect(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {} } = {}) {
+export async function collect(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {}, vars = {} } = {}) {
   const period = periodOverride ?? resolvePeriod(config.period);
   const datasets = {};
   // mặc định bỏ qua các nguồn onDemand (ví dụ báo cáo doanh số chỉ lấy khi được yêu cầu)
@@ -58,7 +58,7 @@ export async function collect(config, { download = true, headed = false, log = c
       for (const src of amisSources) {
         log(`→ Xuất báo cáo: ${src.name}`);
         try {
-          files[src.id] = await session.exportReport(src, { ...period, targetDb: config.secrets.targetDb ?? '' }, { fileName: fileKeys[src.id] });
+          files[src.id] = await session.exportReport(src, { ...period, targetDb: config.secrets.targetDb ?? '', ...vars }, { fileName: fileKeys[src.id] });
           log(`✓ Đã lưu ${path.relative(config.root, files[src.id])}`);
         } catch (e) {
           const shot = await session.screenshot(`loi-${src.id}`);
@@ -105,6 +105,27 @@ export async function collect(config, { download = true, headed = false, log = c
   const facts = buildFacts({ period, targetDb: config.secrets.targetDb, datasets, results });
   const focus = focusRows(config, datasets, results);
   return { period, datasets, results, blocked, supervision, facts, focus };
+}
+
+/** Đọc danh sách Nhóm VTHH hiện có trên AMIS (chỉ đọc) và lưu vào data/nhom_vthh.json. */
+export async function refreshGroups(config, { tg = null, log = () => {} } = {}) {
+  const src = config.sources.find((x) => x.id === 'doanh_so');
+  if (!src?.groups) throw new Error('Nguồn doanh_so chưa khai báo "groups" trong config.json');
+  const session = new AmisSession(config, { log });
+  if (tg) {
+    const timeoutMs = config.amis.concurrentDecisionMs ?? 600000;
+    session.onConcurrent = (detail) => tg.ask(`🚨 AMIS báo tài khoản đang được dùng ở nơi khác:\n<i>${escapeHtml(detail)}</i>\n\nĐăng nhập tiếp sẽ <b>đăng xuất người đó khỏi AMIS</b>. Bạn muốn bot đăng nhập tiếp không?`, { timeoutMs });
+  }
+  try {
+    await session.open();
+    await session.login(config.secrets);
+    await session.verifyDatabase(config.secrets.targetDb);
+    const list = await session.readItemGroups(src);
+    if (!list.length) throw new Error('Không đọc được nhóm nào từ AMIS');
+    const { saveGroups } = await import('./groups.js');
+    saveGroups(config, list);
+    return list;
+  } finally { await session.close(); }
 }
 
 /** Tuổi (phút) của file AMIS cũ nhất trong downloads/, hoặc Infinity nếu thiếu file. */

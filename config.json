@@ -228,6 +228,12 @@
           }
         },
         {
+          "setGroups": {
+            "prefix": "sme_ssbip_mscm2_p_iic_misa_code_id",
+            "values": "{{groups}}"
+          }
+        },
+        {
           "ensureChecked": "label:has-text('Chọn tất cả vật tư')"
         },
         {
@@ -342,6 +348,10 @@
             ]
           }
         }
+      },
+      "groups": {
+        "prefix": "sme_ssbip_mscm2_p_iic_misa_code_id",
+        "file": "data/nhom_vthh.json"
       }
     }
   ],

@@ -56,6 +56,11 @@ giảm giá, **doanh thu thuần**, tiền vốn, lãi gộp, số lượng bán
 trình cộng từ file AMIS (không qua AI) và được đối chiếu với dòng "Tổng cộng" của chính AMIS (kèm kiểm tra doanh thu
 thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch thì báo ⚠️. Tuần tính từ thứ Hai đến hôm nay.
 
+- **Chọn Nhóm VTHH:** sau khi chọn kỳ, bot hiện **danh sách Nhóm VTHH của AMIS** (CCDC, DV, HH, ALU, ECO, ECO+, Mẫu, LUX,
+  ECOSTAR, NC ECO+, NC ECO, NBĐ, PKK, PENCO, NPVC, NVL, TTT, TPVC, TP) để bấm chọn. Chọn được **nhiều nhóm** (bấm lần nữa
+  để bỏ), nút **📊 Xem TẤT CẢ nhóm** lấy toàn bộ. Chọn nhóm cha như **HH** là gồm cả các nhóm con (theo cách AMIS lọc).
+  Tin báo cáo ghi rõ "📦 Nhóm VTHH: …" và nút 🔄 Làm mới giữ nguyên nhóm đã chọn. Danh sách nhóm lưu ở
+  `data/nhom_vthh.json`; khi AMIS thêm/đổi nhóm, gõ **/capnhatnhom** để bot đọc lại từ AMIS (chỉ đọc).
 - **Tùy chọn ngày:** bấm 📅 sẽ hiện **lịch ngay trong tin nhắn**. Bấm ngày bắt đầu, rồi ngày kết thúc (hoặc nút "📌 Chỉ 1 ngày").
   Có nút ‹ › đổi tháng, "↩ Chọn lại ngày bắt đầu", "📍 Về tháng này", "✖ Huỷ". Ngày ở tương lai và ngày trước ngày bắt
   đầu bị khoá (hiện dấu "·"); hôm nay có dấu •. Thích gõ tay thì vẫn được: `01/11/2026 - 10/11/2026` hoặc 1 ngày
@@ -158,6 +163,7 @@ Mỗi báo cáo AMIS là một mục trong `sources` của `config.json`, với 
 | `fill` | `{ "fill": { "selector": "input[placeholder*='Từ ngày']", "value": "{{fromDate}}", "enter": true } }` |
 | `fill` (nâng cao) | `{ "fill": { "selector": "...", "value": "{{fromDate}}", "tab": true, "verify": true } }` — `tab`: bấm Tab sau khi điền; `verify`: đọc lại giá trị, AMIS không nhận thì thử lại (ô ngày của AMIS đôi khi bỏ qua lần điền đầu) |
 | `dateRange` | `{ "dateRange": { "from": "...", "to": "...", "fromValue": "{{fromDate}}", "toValue": "{{toDate}}" } }` — đặt khoảng ngày, tự chọn thứ tự điền để AMIS không từ chối (từ > đến), đọc lại để xác nhận |
+| `setGroups` | `{ "setGroups": { "prefix": "<mã ô Nhóm VTHH>", "values": "{{groups}}" } }` — bỏ hết nhóm đang chọn rồi chọn đúng các nhóm trong `values` (mã ngăn bằng `|`; rỗng = không lọc); tự cuộn danh sách để tìm nhóm ở cuối |
 | `ensureChecked` | `{ "ensureChecked": "label:has-text('Chọn tất cả vật tư')" }` — tích ô nếu chưa tích (AMIS nhớ lựa chọn lần trước nên không bấm mù) |
 | `press` | `{ "press": "Enter" }` |
 | `wait` / `waitFor` / `waitGone` | `{ "wait": 3000 }` / `{ "waitFor": "text=Tổng cộng" }` / `{ "waitGone": "button:has-text('Xem báo cáo')" }` (chờ phần tử biến mất) |
