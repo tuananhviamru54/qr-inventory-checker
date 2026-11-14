@@ -31,6 +31,29 @@ export class Telegram {
     }
   }
 
+  /** Gửi 1 tin ngắn và trả về message_id (để sửa lại sau, dùng cho thanh tiến độ). */
+  async sendOne(html) {
+    const m = await this.call('sendMessage', { chat_id: this.chatId, text: html, parse_mode: 'HTML', disable_web_page_preview: true });
+    return m.message_id;
+  }
+
+  async editMessage(messageId, html) {
+    try {
+      await this.call('editMessageText', { chat_id: this.chatId, message_id: messageId, text: html, parse_mode: 'HTML', disable_web_page_preview: true });
+    } catch (e) {
+      if (!/not modified/i.test(e.message)) throw e;
+    }
+  }
+
+  async typing() {
+    await this.call('sendChatAction', { chat_id: this.chatId, action: 'typing' }).catch(() => {});
+  }
+
+  /** Long-polling lấy tin nhắn mới. */
+  async getUpdates(offset, timeoutSec = 50) {
+    return this.call('getUpdates', { offset, timeout: timeoutSec, allowed_updates: ['message'] });
+  }
+
   /** Gửi tin HTML, tự tách theo dòng nếu vượt giới hạn 4096 ký tự. */
   async sendMessage(html) {
     const chunks = [];

@@ -67,20 +67,29 @@ export function blockReason(method, url, allowPost = []) {
   return hit ? `đường dẫn có "${hit}"` : null;
 }
 
-/** Gắn lớp chặn mạng vào context của Playwright. Trả về nhật ký { blocked[], writes[] }. */
-export async function installNetworkGuard(context, { allowPost = [], log = () => {} } = {}) {
+/**
+ * Gắn lớp chặn mạng vào context của Playwright. Một yêu cầu không phải GET chỉ được đi khi CẢ HAI đồng ý:
+ * luật cứng tại chỗ và agent giám sát độc lập (`supervisor`, nếu có).
+ */
+export async function installNetworkGuard(context, { allowPost = [], log = () => {}, supervisor } = {}) {
   const audit = { blocked: [], nonGet: [] };
-  await context.route('**/*', (route) => {
+  await context.route('**/*', async (route) => {
     const req = route.request();
     const method = req.method();
     if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return route.continue();
     const url = req.url().split('?')[0];
-    const reason = blockReason(method, req.url(), allowPost);
+    let reason = blockReason(method, req.url(), allowPost);
+    if (!reason && supervisor) {
+      const verdict = await supervisor.ask({ kind: 'request', method, url: req.url(), body: (req.postData() ?? '').slice(0, 400) });
+      if (!verdict.allow) reason = `giám sát: ${verdict.reason}`;
+    } else if (reason && supervisor) {
+      supervisor.ask({ kind: 'request', method, url: req.url() }).catch(() => {}); // để giám sát cũng ghi nhận
+    }
     audit.nonGet.push({ time: new Date().toISOString(), method, url, blocked: reason });
-    if (!reason) return route.continue();
+    if (!reason) return route.continue().catch(() => {});
     audit.blocked.push({ method, url, reason });
     log(`🔒 Đã chặn ${method} ${url} (${reason})`);
-    return route.abort('blockedbyclient');
+    return route.abort('blockedbyclient').catch(() => {});
   });
   return audit;
 }

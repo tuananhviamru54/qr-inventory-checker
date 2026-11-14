@@ -4,18 +4,23 @@
   "description": "Tự động đăng nhập MISA AMIS, xuất báo cáo, kiểm tra chéo và gửi kết quả về Telegram",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=20.12" },
+  "engines": {
+    "node": ">=20.12"
+  },
   "scripts": {
     "start": "node src/index.js run",
     "login": "node src/index.js login",
     "check": "node src/index.js run --no-download",
     "dry-run": "node src/index.js run --dry-run",
+    "bot": "node src/index.js bot",
     "test-telegram": "node src/index.js test-telegram",
     "codegen": "playwright codegen --user-data-dir=.auth/profile https://amisapp.misa.vn",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "exceljs": "^4.4.0",
-    "playwright": "^1.48.0"
+    "playwright": "^1.48.0",
+    "zod": "^4.6.7"
   }
 }

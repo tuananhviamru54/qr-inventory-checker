@@ -10,6 +10,9 @@ import { runPipeline } from '../src/index.js';
 import { LoginError } from '../src/amis.js';
 import { parseNumber, resolvePeriod, totp } from '../src/util.js';
 import { blockReason, forbiddenLabel } from '../src/readonly.js';
+import { handleUpdate } from '../src/bot.js';
+import { Telegram } from '../src/telegram.js';
+import { Supervisor } from '../src/supervisor-client.js';
 
 const base = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 
@@ -27,8 +30,12 @@ function makeConfig(mock, root, password = 'secret') {
     { download: 'text=Excel' },
   ];
   cfg.secrets = { username: 'demo', password, targetDb: 'KHO QUẢNG NINH', telegramToken: 'T0KEN', telegramChatId: '42', telegramApiBase: mock.url };
+  cfg.ai = { enabled: false };
+  cfg.bot = { tickMs: 200 };
   return withDefaults(cfg, root);
 }
+
+const withAi = (config, mock) => { config.ai = { ...config.ai, enabled: true, apiKey: 'test-key', baseURL: mock.url }; return config; };
 
 async function writeKiemKe(root) {
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });
@@ -139,8 +146,85 @@ test('chỉ đọc: từ chối bấm nút ghi dữ liệu, chặn yêu cầu gh
     assert.deepEqual(mock.state.reads, ['POST /api/report/GetData']);
     assert.deepEqual(out.blocked.map((b) => b.method).sort(), ['DELETE', 'POST']);
     assert.equal(out.datasets.ton_kho.rows.length, 5);
-    assert.match(JSON.parse(mock.state.telegram[0].text).text, /đã chặn 2 yêu cầu ghi/);
+    const sent = JSON.parse(mock.state.telegram[0].text).text;
+    assert.match(sent, /Giám sát độc lập/);
+    assert.match(sent, /SaveVoucher/);
+    assert.equal(out.supervision.clicksDenied, 0);
+    assert.ok(out.supervision.requests >= 2);
     assert.match(fs.readFileSync(path.join(root, 'output', 'nhat-ky-yeu-cau.log'), 'utf8'), /CHAN\tDELETE/);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('agent kế toán trưởng: báo cáo được kiểm soát trước khi gửi', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    await writeKiemKe(root);
+    const out = await runPipeline(withAi(makeConfig(mock, root), mock), { log: () => {} });
+    assert.equal(out.review.status, 'dat_co_luu_y');
+    const sent = JSON.parse(mock.state.telegram[0].text).text;
+    assert.match(sent, /Kế toán trưởng \(AI\) kiểm soát<\/b>: ⚠️ Đạt, có lưu ý/);
+    assert.match(sent, /Tồn kho âm cần bổ sung phiếu nhập/);
+    assert.ok(mock.state.ai.includes('review:ok'));
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán trưởng trả lại → soạn lại → gửi', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    const config = withAi(makeConfig(mock, root), mock);
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    const out = await handleUpdate(config, tg, 'Mã SP002 còn tồn bao nhiêu?');
+    assert.deepEqual(mock.state.ai.filter((x) => !x.startsWith('supervisor')), ['answer', 'review:reject', 'answer', 'review:ok']);
+    assert.equal(out.review.status, 'dat_co_luu_y');
+    const calls = mock.state.telegram.map((c) => ({ method: c.method, body: c.contentType?.includes('json') ? JSON.parse(c.text) : null }));
+    // tin đầu tiên là thanh tiến độ, sau đó được sửa nhiều lần, cuối cùng báo hoàn tất
+    assert.equal(calls[0].method, 'sendMessage');
+    assert.match(calls[0].body.text, /Đang xử lý câu hỏi/);
+    const edits = calls.filter((c) => c.method === 'editMessageText');
+    assert.ok(edits.length >= 4);
+    assert.ok(edits.some((e) => /🔄 \d\/6 Kế toán trưởng kiểm soát/.test(e.body.text)));
+    assert.match(edits.at(-1).body.text, /^✅.*\n(✅.*\n){6}⏱ Tổng thời gian/s);
+    const answer = calls.filter((c) => c.method === 'sendMessage').at(-1).body.text;
+    assert.match(answer, /SP002 Vở kẻ ngang còn 180 quyển/);
+    assert.doesNotMatch(answer, /999/);
+    assert.match(answer, /Giám sát độc lập/);
+
+    // Hỏi lần 2 trong vòng 30 phút: dùng lại dữ liệu, không vào AMIS nữa
+    await handleUpdate(config, tg, 'Mã SP002 còn tồn bao nhiêu?');
+    assert.equal(mock.state.exports.length, 1);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('agent giám sát độc lập: AI chặn nút và yêu cầu ghi mà luật cứng không biết; mất liên lạc → từ chối', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    // nút "Chốt kỳ" không có trong danh sách cấm → agent giám sát (AI) từ chối
+    let config = withAi(makeConfig(mock, root), mock);
+    config.sources[0].steps.splice(4, 0, { click: "button:has-text('Chốt kỳ')" });
+    let out = await runPipeline(config, { log: () => {}, send: false });
+    assert.match(out.datasets.ton_kho.error, /Agent giám sát từ chối thao tác bấm "Chốt kỳ"/);
+    assert.equal(out.supervision.clicksDenied, 1);
+
+    // nút vô hại nhưng trang gửi POST lạ → AI phân loại là ghi dữ liệu → chặn ở tầng mạng
+    config = withAi(makeConfig(mock, root), mock);
+    config.sources[0].steps.splice(4, 0, { click: "button:has-text('Nạp thêm')" }, { wait: 1500 });
+    out = await runPipeline(config, { log: () => {}, send: false });
+    assert.deepEqual(mock.state.writes, []);
+    assert.ok(out.blocked.some((b) => b.url.endsWith('/api/misc/thing') && /giám sát: ghi_du_lieu/.test(b.reason)));
+    assert.equal(out.datasets.ton_kho.rows.length, 5);
+    assert.match(fs.readFileSync(path.join(root, 'output', 'giam-sat.log'), 'utf8'), /CHẶN\tPOST .*\/api\/misc\/thing/);
+
+    // tiến trình giám sát chết → mọi câu hỏi đều bị từ chối
+    const sup = new Supervisor({ ai: { enabled: false }, outputDir: path.join(root, 'output'), timeoutMs: 2000 });
+    assert.equal((await sup.ask({ kind: 'request', method: 'POST', url: 'http://x/api/report/get' })).allow, true);
+    sup.child.kill('SIGKILL');
+    await new Promise((r) => sup.child.once('exit', r));
+    const verdict = await sup.ask({ kind: 'request', method: 'POST', url: 'http://x/api/report/get' });
+    assert.equal(verdict.allow, false);
+    assert.match(verdict.reason, /không phản hồi/);
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

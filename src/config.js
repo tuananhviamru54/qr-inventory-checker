@@ -22,6 +22,11 @@ export function withDefaults(config, root) {
       output: path.resolve(root, dirs.output ?? 'output'),
       profile: path.resolve(root, dirs.profile ?? '.auth/profile'),
     },
+    ai: {
+      model: 'claude-opus-5-5',
+      ...(config.ai ?? {}),
+    },
+    bot: { maxDataAgeMinutes: 30, maxReviewRounds: 2, ...(config.bot ?? {}) },
     secrets: {
       // chấp nhận cả tên biến MISA_WEB_*
       username: process.env.AMIS_USERNAME || process.env.MISA_WEB_USERNAME,

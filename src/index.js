@@ -7,7 +7,9 @@ import { loadConfig } from './config.js';
 import { AmisSession } from './amis.js';
 import { readDataset } from './excel.js';
 import { runChecks } from './checks.js';
-import { buildMessage, writeIssuesWorkbook } from './report.js';
+import { buildMessage, writeIssuesWorkbook, supervisionSection } from './report.js';
+import { buildFacts } from './agents/facts.js';
+import { reviewDraft, reviewSection } from './agents/reviewer.js';
 import { Telegram } from './telegram.js';
 import { resolvePeriod, escapeHtml } from './util.js';
 
@@ -17,30 +19,33 @@ function findDownloaded(dir, id) {
   return f ? path.join(dir, f) : null;
 }
 
-function telegramOf(config) {
+export function telegramOf(config) {
   const s = config.secrets;
   return new Telegram({ token: s.telegramToken, chatId: s.telegramChatId, apiBase: s.telegramApiBase });
 }
 
 /**
+ * Lấy dữ liệu và chạy kiểm tra chéo (chưa gửi gì).
  * @param opts.download  false = dùng lại file đã có trong thư mục downloads/
- * @param opts.send      false = chỉ in ra màn hình, không gửi Telegram
+ * @param opts.onStage   hàm nhận tên giai đoạn ('login' | 'export' | 'reuse' | 'check') để hiển thị tiến độ
  */
-export async function runPipeline(config, { download = true, send = true, headed = false, log = console.log } = {}) {
+export async function collect(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null } = {}) {
   const period = resolvePeriod(config.period);
-  const tg = send ? telegramOf(config) : null;
   const datasets = {};
   const amisSources = config.sources.filter((s) => s.type === 'amis');
   const files = {};
   let blocked = [];
+  let supervision = null;
 
   // 1. Tải báo cáo từ AMIS
   if (download && amisSources.length) {
+    await onStage('login');
     const session = new AmisSession(config, { headed, log });
     try {
       await session.open();
       await session.login(config.secrets);
       await session.verifyDatabase(config.secrets.targetDb);
+      await onStage('export');
       for (const src of amisSources) {
         log(`→ Xuất báo cáo: ${src.name}`);
         try {
@@ -63,9 +68,13 @@ export async function runPipeline(config, { download = true, send = true, headed
     }
     blocked = session.audit?.blocked ?? [];
     await session.close();
+    supervision = session.supervision;
+  } else {
+    await onStage('reuse');
   }
 
   // 2. Đọc dữ liệu
+  await onStage('check');
   for (const src of config.sources) {
     if (datasets[src.id]) continue;
     const file = src.type === 'amis'
@@ -84,13 +93,40 @@ export async function runPipeline(config, { download = true, send = true, headed
 
   // 3. Kiểm tra chéo
   const results = runChecks(config.checks, datasets);
-  const message = buildMessage({ title: config.title, period, datasets, results, blocked, targetDb: config.secrets.targetDb, maxLines: config.maxLinesPerCheck });
+  const facts = buildFacts({ period, targetDb: config.secrets.targetDb, datasets, results });
+  return { period, datasets, results, blocked, supervision, facts };
+}
+
+/** Tuổi (phút) của file AMIS cũ nhất trong downloads/, hoặc Infinity nếu thiếu file. */
+export function dataAgeMinutes(config) {
+  const ages = config.sources.filter((s) => s.type === 'amis').map((s) => {
+    const f = findDownloaded(config.dirs.downloads, s.id);
+    return f ? (Date.now() - fs.statSync(f).mtimeMs) / 60000 : Infinity;
+  });
+  return ages.length ? Math.max(...ages) : Infinity;
+}
+
+/**
+ * Quy trình báo cáo đầy đủ: lấy dữ liệu → kiểm tra chéo → kế toán trưởng kiểm soát → gửi Telegram.
+ * @param opts.send  false = chỉ in ra màn hình, không gửi Telegram
+ * @param opts.tg    dùng lại đối tượng Telegram có sẵn (bot)
+ */
+export async function runPipeline(config, { download = true, send = true, headed = false, log = console.log, onStage = () => {}, tg } = {}) {
+  tg = send ? tg ?? telegramOf(config) : null;
+  const data = await collect(config, { download, headed, log, onStage, tg });
+  const { period, datasets, results, blocked, supervision, facts } = data;
+
+  const draft = buildMessage({ title: config.title, period, datasets, results, targetDb: config.secrets.targetDb, maxLines: config.maxLinesPerCheck });
+  await onStage('review');
+  const review = await reviewDraft(config.ai, { draft: draft.replace(/<[^>]+>/g, ''), facts });
+  const message = [draft, reviewSection(review), supervisionSection(supervision, blocked)].filter(Boolean).join('\n\n');
+
   fs.mkdirSync(config.dirs.output, { recursive: true });
   const stamp = period.today.split('/').reverse().join('-');
   const issuesFile = path.join(config.dirs.output, `chenh-lech-${stamp}.xlsx`);
   const hasIssues = await writeIssuesWorkbook(issuesFile, results);
 
-  // 4. Gửi Telegram
+  await onStage('send');
   log('\n' + message.replace(/<[^>]+>/g, '') + '\n');
   if (tg) {
     await tg.sendMessage(message);
@@ -103,7 +139,7 @@ export async function runPipeline(config, { download = true, send = true, headed
     }
     log('✓ Đã gửi báo cáo về Telegram');
   }
-  return { period, datasets, results, message, blocked, issuesFile: hasIssues ? issuesFile : null };
+  return { ...data, review, message, issuesFile: hasIssues ? issuesFile : null };
 }
 
 async function main() {
@@ -126,11 +162,14 @@ async function main() {
   } else if (cmd === 'test-telegram') {
     await telegramOf(config).sendMessage('✅ Kết nối Telegram thành công — bot đối chiếu MISA AMIS đã sẵn sàng.');
     console.log('Đã gửi tin thử.');
+  } else if (cmd === 'bot') {
+    const { runBot } = await import('./bot.js');
+    await runBot(config, { headed: flag('headed') });
   } else if (cmd === 'run') {
     const out = await runPipeline(config, { download: !flag('no-download'), send: !flag('dry-run'), headed: flag('headed') });
     if (flag('fail-on-diff') && out.results.some((r) => r.status === 'fail')) process.exitCode = 2;
   } else {
-    console.log('Lệnh: run [--no-download] [--dry-run] [--headed] [--fail-on-diff] | login | test-telegram   (thêm --config <file>)');
+    console.log('Lệnh: run [--no-download] [--dry-run] [--headed] [--fail-on-diff] | bot | login | test-telegram   (thêm --config <file>)');
     process.exitCode = 1;
   }
 }

@@ -4,7 +4,7 @@ import { escapeHtml } from './util.js';
 
 const ICON = { ok: '✅', fail: '❌', skipped: '⚠️' };
 
-export function buildMessage({ title, period, datasets, results, blocked = [], targetDb, maxLines = 10 }) {
+export function buildMessage({ title, period, datasets, results, targetDb, maxLines = 10 }) {
   const lines = [`📊 <b>${escapeHtml(title)}</b>`, `🗓 Kỳ: ${period.fromDate} – ${period.toDate}`];
   if (targetDb) lines.push(`🗄 Dữ liệu: ${escapeHtml(targetDb)}`);
   lines.push('');
@@ -29,11 +29,27 @@ export function buildMessage({ title, period, datasets, results, blocked = [], t
     ? `🔴 Kết luận: ${fails}/${results.length} phép kiểm tra có chênh lệch.`
     : skipped ? `🟡 Kết luận: không phát hiện chênh lệch, nhưng ${skipped} phép kiểm tra bị bỏ qua.`
     : '🟢 Kết luận: tất cả số liệu khớp.');
+  return lines.join('\n');
+}
+
+/** Đoạn HTML tóm tắt việc giám sát thao tác trên AMIS (agent giám sát độc lập + lớp chặn chỉ-đọc). */
+export function supervisionSection(supervision, blocked = []) {
+  if (!supervision && !blocked.length) return '';
+  const lines = [];
+  if (supervision) {
+    const s = supervision;
+    lines.push(`🛡 <b>Giám sát độc lập</b>: ${s.clicksDenied ? '⛔ CÓ thao tác bị từ chối' : '✅ không có thao tác ghi/sửa nào được thực hiện'}`);
+    lines.push(`   • ${s.requests} yêu cầu gửi lên AMIS được xét, ${s.denied} bị chặn · ${s.clicks} lần bấm, ${s.clicksDenied} bị từ chối · ${s.fills} ô tham số được điền`);
+    lines.push(`   • Phân loại bằng AI: ${s.aiEnabled ? `bật (${s.aiCalls} endpoint/nút mới được xét${s.aiErrors ? `, ${s.aiErrors} lần AI lỗi — ${escapeHtml(s.lastAiError ?? '')}` : ''})` : 'tắt (chỉ dùng luật cứng)'}`);
+  } else {
+    lines.push('🛡 <b>Lớp chặn chỉ-đọc</b>');
+  }
   if (blocked.length) {
     const counts = new Map();
-    for (const b of blocked) { const k = `${b.method} ${b.url} (${b.reason})`; counts.set(k, (counts.get(k) ?? 0) + 1); }
-    lines.push('', `🔒 Chế độ chỉ đọc đã chặn ${blocked.length} yêu cầu ghi do trang AMIS tự gửi:`);
-    for (const [k, n] of [...counts].slice(0, 5)) lines.push(`   • ${escapeHtml(k)}${n > 1 ? ` ×${n}` : ''}`);
+    for (const b of blocked) { const k = `${b.method} ${b.url.replace(/^https?:\/\/[^/]+/, '')} (${b.reason})`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+    lines.push('   Yêu cầu ghi do trang AMIS tự gửi đã bị chặn:');
+    for (const [k, n] of [...counts].slice(0, 5)) lines.push(`   • ${escapeHtml(k.slice(0, 160))}${n > 1 ? ` ×${n}` : ''}`);
+    if (counts.size > 5) lines.push(`   … và ${counts.size - 5} loại khác (xem output/giam-sat.log)`);
   }
   return lines.join('\n');
 }

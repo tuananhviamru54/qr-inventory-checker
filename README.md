@@ -40,6 +40,39 @@ và được liệt kê cuối tin Telegram — đó là hoạt động bình th
 > chắn nhất là dùng một tài khoản AMIS riêng chỉ được phân quyền Xem/In/Xuất báo cáo** — khi đó chính AMIS từ chối
 > mọi thao tác ghi. Lưu ý `npm run codegen` là trình duyệt do bạn tự thao tác, không có lớp chặn này.
 
+### Ba agent và bot hỏi–đáp
+
+Chạy `npm run bot` để bot nghe tin nhắn Telegram (chỉ phục vụ đúng `TELEGRAM_CHAT_ID`):
+
+| Gõ trong Telegram | Bot làm gì |
+|---|---|
+| `/baocao` | Lập báo cáo đối chiếu (dùng lại dữ liệu nếu vừa xuất trong `bot.maxDataAgeMinutes` phút, mặc định 30) |
+| `/moi` | Như trên nhưng luôn vào AMIS lấy dữ liệu mới |
+| câu hỏi bất kỳ | Ví dụ "Mã A12_2 còn tồn bao nhiêu?", "Những mã nào đang âm kho?" |
+
+**Thanh tiến độ:** ngay khi nhận yêu cầu, bot gửi một tin liệt kê các bước (đăng nhập → xuất báo cáo → kiểm tra chéo → trợ
+lý soạn trả lời → kế toán trưởng kiểm soát → gửi), cập nhật vài giây một lần: bước nào xong, đã chạy bao lâu, dự kiến còn
+bao lâu (tính từ thời lượng các lần chạy trước, lưu ở `output/thoi-gian.json`).
+
+**1. Agent kế toán trưởng** (`src/agents/reviewer.js`) — kiểm soát mọi nội dung trước khi gửi. Nó nhận số liệu gốc (do
+chương trình tính từ file AMIS) và bản nháp, đối chiếu từng con số rồi kết luận *Đạt / Đạt có lưu ý / Không đạt*, kèm nhận
+xét nghiệp vụ. Với câu hỏi tự do, nếu "Không đạt" thì trả lại cho trợ lý soạn lại (tối đa `bot.maxReviewRounds` vòng); vẫn
+không đạt thì câu trả lời được gửi kèm cảnh báo rõ ràng. Agent này không được sửa số liệu trong báo cáo.
+
+**2. Agent giám sát độc lập** (`src/supervisor.js`) — chạy thành **tiến trình riêng**, tách khỏi tiến trình điều khiển
+trình duyệt, giám sát từ lúc đăng nhập. Mọi yêu cầu không phải GET gửi lên MISA và mọi lần bấm nút đều phải được nó cho
+phép; nếu tiến trình giám sát chết hoặc không trả lời thì thao tác bị từ chối. Luật cứng (cấm PUT/PATCH/DELETE, cấm URL và
+nút mang nghĩa ghi) luôn áp dụng và AI không gỡ được; khi có khoá Claude, endpoint/nút chưa gặp còn được AI phân loại
+(đọc / xác thực / xuất báo cáo / đo lường được qua; ghi dữ liệu / ghi cài đặt / không rõ bị chặn), kết quả lưu ở
+`output/giam-sat-phan-loai.json`. Nhật ký đầy đủ: `output/giam-sat.log`; tóm tắt nằm cuối mỗi tin Telegram.
+
+**3. Agent trợ lý** (`src/agents/answer.js`) — soạn câu trả lời cho câu hỏi tự do, chỉ dựa trên bảng tồn kho vừa xuất.
+
+Các agent AI cần `ANTHROPIC_API_KEY` trong `.env` (model mặc định `claude-opus-5-5`, đổi ở `ai.model` trong
+`config.json`). Không có khoá: `/baocao` vẫn chạy, giám sát dùng luật cứng, tin báo cáo ghi rõ kế toán trưởng AI chưa bật,
+và bot không trả lời câu hỏi tự do. Khi bật AI, bảng tồn kho và phần đầu nội dung các yêu cầu gửi lên AMIS được gửi tới
+Claude API để phân tích.
+
 ### Cài đặt
 
 Cần Node.js ≥ 20.12.
@@ -63,7 +96,8 @@ cp .env.example .env      # rồi điền tài khoản AMIS và Telegram
 | Lệnh | Tác dụng |
 |---|---|
 | `npm run login` | Mở trình duyệt có giao diện để đăng nhập / nhập OTP thủ công 1 lần. Phiên được lưu ở `.auth/profile`. |
-| `npm start` | Chạy toàn bộ: đăng nhập → xuất → đối chiếu → gửi Telegram. |
+| `npm start` | Chạy toàn bộ: đăng nhập → xuất → đối chiếu → kế toán trưởng kiểm soát → gửi Telegram. |
+| `npm run bot` | Bot nghe lệnh và câu hỏi trên Telegram, có thanh tiến độ. |
 | `npm run dry-run` | Như trên nhưng chỉ in kết quả ra màn hình, không gửi Telegram. |
 | `npm run check` | Không vào AMIS; dùng lại file đã có trong `downloads/` (có thể tự chép file xuất tay vào `downloads/ton_kho.xlsx`). |
 | `npm test` | Kiểm thử với AMIS + Telegram giả lập. |

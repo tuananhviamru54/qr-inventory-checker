@@ -4,7 +4,8 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { template, totp } from './util.js';
-import { installNetworkGuard, assertStepAllowed, assertElementAllowed } from './readonly.js';
+import { installNetworkGuard, assertStepAllowed, assertElementAllowed, ReadOnlyViolation } from './readonly.js';
+import { Supervisor } from './supervisor-client.js';
 
 export class LoginError extends Error {}
 
@@ -19,6 +20,7 @@ const DEFAULT_SELECTORS = {
 export class AmisSession {
   constructor(config, { headed = false, log = console.log } = {}) {
     this.amis = config.amis;
+    this.ai = config.ai ?? {};
     this.dirs = config.dirs;
     this.sel = { ...DEFAULT_SELECTORS, ...(config.amis.selectors ?? {}) };
     this.headed = headed;
@@ -41,7 +43,8 @@ export class AmisSession {
       proxy: process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined,
     });
     this.context.setDefaultTimeout(this.amis.timeoutMs ?? 30000);
-    this.audit = await installNetworkGuard(this.context, { allowPost: this.amis.readOnly?.allowPost, log: this.log });
+    this.supervisor = new Supervisor({ ai: this.ai, allowPost: this.amis.readOnly?.allowPost, outputDir: this.dirs.output });
+    this.audit = await installNetworkGuard(this.context, { allowPost: this.amis.readOnly?.allowPost, log: this.log, supervisor: this.supervisor });
     this.page = this.context.pages()[0] ?? await this.context.newPage();
   }
 
@@ -51,6 +54,8 @@ export class AmisSession {
       await fs.appendFile(path.join(this.dirs.output, 'nhat-ky-yeu-cau.log'), lines.join('\n') + '\n').catch(() => {});
     }
     await this.context?.close().catch(() => {});
+    this.supervision = await this.supervisor?.summary().catch(() => null) ?? this.supervision ?? null;
+    this.supervisor?.stop();
   }
 
   async screenshot(name) {
@@ -138,6 +143,9 @@ export class AmisSession {
       const loc = page.locator(selector).first();
       await loc.waitFor({ state: 'visible' });
       await assertElementAllowed(loc);
+      const label = await loc.evaluate((el) => (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 80)).catch(() => '');
+      const verdict = await this.supervisor.ask({ kind: 'click', label, selector, context: source.name });
+      if (!verdict.allow) throw new ReadOnlyViolation(`Agent giám sát từ chối thao tác bấm "${label || selector}": ${verdict.reason}`);
       await loc.click();
     };
     for (const [i, step] of source.steps.entries()) {
@@ -160,6 +168,7 @@ export class AmisSession {
           }
           case 'fill': {
             const loc = page.locator(t(arg.selector)).first();
+            this.supervisor.ask({ kind: 'fill', selector: t(arg.selector), value: t(arg.value) }).catch(() => {});
             await loc.fill(t(arg.value));
             if (arg.enter) await loc.press('Enter');
             break;

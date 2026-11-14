@@ -25,7 +25,7 @@ export async function buildStockWorkbook() {
 }
 
 export async function startMock() {
-  const state = { logins: [], exports: [], telegram: [], writes: [], reads: [] };
+  const state = { logins: [], exports: [], telegram: [], writes: [], reads: [], ai: [], reviewCalls: 0, updates: [] };
   const xlsx = await buildStockWorkbook();
   const html = (res, body) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset="utf-8">${body}`); };
   const readBody = (req) => new Promise((ok) => { const b = []; req.on('data', (c) => b.push(c)); req.on('end', () => ok(Buffer.concat(b))); });
@@ -33,12 +33,37 @@ export async function startMock() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const authed = /sid=ok/.test(req.headers.cookie ?? '');
+    if (url.pathname === '/v1/messages') { // Claude API giả lập
+      const body = JSON.parse((await readBody(req)).toString());
+      const system = typeof body.system === 'string' ? body.system : JSON.stringify(body.system);
+      const user = JSON.stringify(body.messages);
+      let out;
+      if (system.includes('kiểm soát viên độc lập')) {
+        out = user.includes('Chữ trên phần tử')
+          ? { an_toan: !user.includes('Chốt kỳ'), ly_do: 'mock' }
+          : { loai: user.includes('/api/misc/thing') ? 'ghi_du_lieu' : 'doc', ly_do: 'mock' };
+        state.ai.push('supervisor');
+      } else if (system.includes('Bạn là kế toán trưởng')) {
+        state.reviewCalls++;
+        const reject = user.includes('SP002 còn 999');
+        out = reject
+          ? { ket_luan: 'khong_dat', sai_sot: ['Bản nháp ghi SP002 còn 999, số liệu gốc là 180'], nhan_xet: [], de_xuat: [] }
+          : { ket_luan: 'dat_co_luu_y', sai_sot: [], nhan_xet: ['Tồn kho âm cần bổ sung phiếu nhập'], de_xuat: ['Rà soát SP003'] };
+        state.ai.push(reject ? 'review:reject' : 'review:ok');
+      } else {
+        out = { tra_loi: user.includes('kế toán trưởng trả lại') ? 'SP002 Vở kẻ ngang còn 180 quyển' : 'SP002 còn 999', du_can_cu: true };
+        state.ai.push('answer');
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify(out) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }));
+    }
     if (url.pathname.startsWith('/bot')) {
       const body = await readBody(req);
       const method = url.pathname.split('/').pop();
       state.telegram.push({ method, contentType: req.headers['content-type'], body: body.toString('latin1'), text: body.toString('utf8') });
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, result: {} }));
+      const result = method === 'getUpdates' ? state.updates.splice(0) : { message_id: state.telegram.length };
+      return res.end(JSON.stringify({ ok: true, result }));
     }
     if (url.pathname === '/login' && req.method === 'POST') {
       const form = new URLSearchParams((await readBody(req)).toString());
@@ -70,6 +95,8 @@ export async function startMock() {
       return html(res, `<h1>Tổng hợp tồn kho</h1>
         <input placeholder="Từ ngày" id="f"><input placeholder="Đến ngày" id="t">
         <button onclick="document.getElementById('bar').hidden=false">Đồng ý</button>
+        <button onclick="fetch('/api/period/finalize',{method:'POST'})">Chốt kỳ</button>
+        <button onclick="fetch('/api/misc/thing',{method:'POST'}).catch(()=>{})">Nạp thêm</button>
         <button id="cat" onclick="fetch('/api/voucher/Save',{method:'POST'})">Cất</button>
         <button onclick="fetch('/api/report/GetData',{method:'POST'});fetch('/api/voucher/SaveVoucher',{method:'POST'}).catch(()=>{});fetch('/api/voucher/1',{method:'DELETE'}).catch(()=>{})">Nạp dữ liệu</button>
         <div id="bar" hidden><button onclick="document.getElementById('menu').hidden=false">Xuất khẩu</button>
