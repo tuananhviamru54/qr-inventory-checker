@@ -81,11 +81,11 @@ Mỗi báo cáo AMIS là một mục trong `sources` của `config.json`, với 
 | Bước | Ví dụ |
 |---|---|
 | `goto` | `{ "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/INInventoryBalanceSummary" }` |
-| `click` | `{ "click": "text=Tổng hợp tồn kho" }` hoặc có điều kiện: `{ "click": { "selector": "...", "ifVisible": "...", "unlessVisible": "..." } }` |
+| `click` | `{ "click": "text=Tổng hợp tồn kho" }` hoặc có điều kiện: `{ "click": { "selector": "...", "ifVisible": "...", "unlessVisible": "...", "optional": true, "timeout": 15000 } }` (`optional`: chờ tối đa `timeout`, không thấy thì bỏ qua) |
 | `fill` | `{ "fill": { "selector": "input[placeholder*='Từ ngày']", "value": "{{fromDate}}", "enter": true } }` |
 | `press` | `{ "press": "Enter" }` |
 | `wait` / `waitFor` | `{ "wait": 3000 }` / `{ "waitFor": "text=Tổng cộng" }` |
-| `download` | `{ "download": "text=\"Tải tệp\"" }` — bấm vào phần tử làm trình duyệt tải file (dạng đầy đủ: `{ "selector": "...", "confirm": "nút xác nhận nếu hiện" }`) |
+| `download` | `{ "download": { "selector": "text=\"Tải tệp\"", "response": "/file-access/download" } }` — bấm rồi lưu file từ phản hồi mạng có URL chứa `response`. Dạng `{ "download": "selector" }` dùng cơ chế tải file của trình duyệt. |
 
 Biến dùng được: `{{fromDate}}`, `{{toDate}}`, `{{today}}` (dd/MM/yyyy), tính theo `period`:
 `today`, `yesterday`, `thisMonth`, `lastMonth`, `thisYear` hoặc `{ "from": "01/01/2026", "to": "31/01/2026" }`.

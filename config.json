@@ -78,22 +78,26 @@
           "click": "[data-testid='sme_iibdv_msrph_reportheader-msdd-raction-btn-buttonsubclick']"
         },
         {
-          "click": "text=Xuất Excel (dạng dữ liệu)"
+          "wait": 1500
         },
         {
-          "wait": 3000
+          "click": "text=Xuất Excel (dạng dữ liệu)"
         },
         {
           "click": {
             "selector": "button:visible:has-text('Đồng ý')",
-            "ifVisible": "button:visible:has-text('Đồng ý')"
+            "optional": true,
+            "timeout": 15000
           }
         },
         {
           "waitFor": "text=\"Tải tệp\""
         },
         {
-          "download": "text=\"Tải tệp\""
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
         }
       ],
       "parse": {

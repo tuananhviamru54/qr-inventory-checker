@@ -146,10 +146,15 @@ export class AmisSession {
         switch (action) {
           case 'goto': await page.goto(t(arg), { waitUntil: 'domcontentloaded' }); break;
           case 'click': {
-            // dạng rút gọn: "selector"; dạng đầy đủ: { selector, ifVisible?, unlessVisible? }
+            // dạng rút gọn: "selector"; dạng đầy đủ: { selector, ifVisible?, unlessVisible?, optional?, timeout? }
             if (typeof arg === 'string') { await safeClick(t(arg)); break; }
             if (arg.ifVisible && !(await this.visible(t(arg.ifVisible)))) break;
             if (arg.unlessVisible && (await this.visible(t(arg.unlessVisible)))) break;
+            if (arg.optional) { // chờ tối đa timeout; không thấy thì bỏ qua bước này
+              const seen = await page.locator(t(arg.selector)).first()
+                .waitFor({ state: 'visible', timeout: arg.timeout ?? 10000 }).then(() => true, () => false);
+              if (!seen) break;
+            }
             await safeClick(t(arg.selector));
             break;
           }
@@ -163,8 +168,39 @@ export class AmisSession {
           case 'wait': await page.waitForTimeout(arg); break;
           case 'waitFor': await page.locator(t(arg)).first().waitFor({ state: 'visible' }); break;
           case 'download': {
-            // dạng rút gọn: "selector"; dạng đầy đủ: { selector, confirm? } — confirm là nút xác nhận có thể hiện ra sau khi bấm
+            // dạng rút gọn: "selector"; dạng đầy đủ: { selector, confirm?, response? }
+            // confirm: nút xác nhận có thể hiện ra sau khi bấm; response: đoạn URL của yêu cầu tải file
             const spec = typeof arg === 'string' ? { selector: arg } : arg;
+            if (spec.response) {
+              // Lấy file trực tiếp từ phản hồi mạng (GET) có URL chứa `response`, không phụ thuộc cơ chế tải file của trình duyệt.
+              const timeout = this.amis.downloadTimeoutMs ?? 120000;
+              let onRoute;
+              const body = new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error(`Hết ${timeout / 1000}s chờ file tải về`)), timeout);
+                onRoute = async (route) => {
+                  if (route.request().method() !== 'GET') return route.fallback();
+                  try {
+                    const res = await route.fetch();
+                    if (!res.ok()) throw new Error(`Máy chủ trả mã ${res.status()} khi tải file`);
+                    const buf = await res.body();
+                    await route.abort().catch(() => {});
+                    clearTimeout(timer);
+                    resolve({ buf, url: route.request().url() });
+                  } catch (e) { clearTimeout(timer); reject(e); }
+                };
+              });
+              body.catch(() => {});
+              const match = (url) => url.href.includes(spec.response);
+              await page.route(match, onRoute);
+              try {
+                await safeClick(t(spec.selector));
+                const { buf, url } = await body;
+                const ext = path.extname(new URL(url).searchParams.get('file') ?? '') || '.xlsx';
+                saved = path.join(this.dirs.downloads, `${source.id}${ext}`);
+                await fs.writeFile(saved, buf);
+              } finally { await page.unroute(match, onRoute).catch(() => {}); }
+              break;
+            }
             const pending = page.waitForEvent('download', { timeout: this.amis.downloadTimeoutMs ?? 120000 });
             pending.catch(() => {});
             await safeClick(t(spec.selector));
