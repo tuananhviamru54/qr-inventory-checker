@@ -8,10 +8,11 @@ export const STAGE_LABELS = {
   reuse: 'Dùng lại dữ liệu vừa xuất',
   check: 'Đọc file và kiểm tra chéo',
   answer: 'Trợ lý soạn câu trả lời',
+  expert: 'Chuyên gia đối chiếu, phân tích và chốt',
   review: 'Kế toán trưởng kiểm soát',
   send: 'Gửi kết quả',
 };
-const DEFAULT_SECONDS = { login: 12, export: 35, reuse: 1, check: 2, answer: 25, review: 25, send: 2 };
+const DEFAULT_SECONDS = { login: 12, export: 35, reuse: 1, check: 2, answer: 25, expert: 30, review: 25, send: 2 };
 
 const fmt = (sec) => (sec >= 60 ? `${Math.floor(sec / 60)} phút ${Math.round(sec % 60)}s` : `${Math.max(0, Math.round(sec))}s`);
 

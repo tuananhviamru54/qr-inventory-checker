@@ -165,7 +165,14 @@ test('agent kế toán trưởng: báo cáo được kiểm soát trước khi g
     const sent = JSON.parse(mock.state.telegram[0].text).text;
     assert.match(sent, /✔ Đã kiểm tra chéo độ chính xác/);
     assert.doesNotMatch(sent, /nhận xét|đề xuất|lưu ý/i);
-    assert.ok(mock.state.ai.includes('review:ok'));
+    // chuyên gia phân tích → kế toán trưởng trả lại (SAI_LECH_MOCK) → chuyên gia làm lại → đạt
+    assert.deepEqual(mock.state.ai.filter((x) => !x.startsWith('supervisor')), ['expert:report', 'review:reject', 'expert:report', 'review:ok']);
+    assert.match(sent, /🎓 <b>Chuyên gia phân tích<\/b> — 🟡 Cần chú ý/);
+    assert.match(sent, /tồn cuối kỳ -5/);
+    assert.match(sent, /Có thể xuất trước khi nhập phiếu/);
+    assert.doesNotMatch(sent, /SAI_LECH_MOCK/);
+    assert.ok(sent.indexOf('Chuyên gia phân tích') < sent.indexOf('Đã kiểm tra chéo độ chính xác'));
+    assert.deepEqual(Object.keys(out.focus), ['Tồn kho AMIS', 'Kiểm kê thực tế']);
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -176,7 +183,7 @@ test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán t
     const config = withAi(makeConfig(mock, root), mock);
     const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
     const out = await handleUpdate(config, tg, 'Mã SP002 còn tồn bao nhiêu?');
-    assert.deepEqual(mock.state.ai.filter((x) => !x.startsWith('supervisor')), ['answer', 'review:reject', 'answer', 'review:ok']);
+    assert.deepEqual(mock.state.ai.filter((x) => !x.startsWith('supervisor')), ['answer', 'expert:answer', 'review:reject', 'answer', 'expert:answer', 'review:ok']);
     assert.equal(out.review.status, 'dat');
     const calls = mock.state.telegram.map((c) => ({ method: c.method, body: c.contentType?.includes('json') ? JSON.parse(c.text) : null }));
     // tin đầu tiên là thanh tiến độ, sau đó được sửa nhiều lần, cuối cùng báo hoàn tất
@@ -184,11 +191,12 @@ test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán t
     assert.match(calls[0].body.text, /Đang xử lý câu hỏi/);
     const edits = calls.filter((c) => c.method === 'editMessageText');
     assert.ok(edits.length >= 4);
-    assert.ok(edits.some((e) => /🔄 \d\/6 Kế toán trưởng kiểm soát/.test(e.body.text)));
-    assert.match(edits.at(-1).body.text, /^✅.*\n(✅.*\n){6}⏱ Tổng thời gian/s);
+    assert.ok(edits.some((e) => /🔄 \d\/7 Kế toán trưởng kiểm soát/.test(e.body.text)));
+    assert.match(edits.at(-1).body.text, /^✅.*\n(✅.*\n){7}⏱ Tổng thời gian/s);
     const answer = calls.filter((c) => c.method === 'sendMessage').at(-1).body.text;
     assert.match(answer, /SP002 Vở kẻ ngang còn 180 quyển/);
     assert.doesNotMatch(answer, /999/);
+    assert.match(answer, /🎓 Có thể SP002 đã xuất/);
     assert.match(answer, /✔ Đã kiểm tra chéo độ chính xác/);
     assert.doesNotMatch(answer, /KHÔNG ĐẠT/);
     assert.match(answer, /Giám sát độc lập/);

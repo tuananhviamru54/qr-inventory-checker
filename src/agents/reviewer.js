@@ -18,6 +18,8 @@ Bạn nhận được SỐ LIỆU GỐC (trích trực tiếp từ MISA AMIS và
 - một phép kiểm tra bị "bỏ qua" hoặc lỗi nhưng bản nháp trình bày như đã "khớp";
 - với câu hỏi: câu trả lời không đúng trọng tâm câu hỏi.
 
+Bản nháp có thể gồm cả phần "Chuyên gia phân tích". Các câu nêu giả thuyết (bắt đầu bằng "Có thể") và việc cần làm là ý kiến chuyên gia, không coi là sai chỉ vì không có sẵn trong số liệu; chỉ ghi sai_sot khi phần đó chứa con số/mã hàng sai, hoặc khẳng định chắc chắn một điều số liệu gốc không cho phép kết luận, hoặc mâu thuẫn với kết quả các phép kiểm tra.
+
 ket_luan = "dat" nếu mọi điểm đều khớp (sai_sot để trống); "khong_dat" nếu có bất kỳ điểm sai nào. Chỉ dựa vào số liệu được cung cấp. Viết tiếng Việt, mỗi điểm sai một câu ngắn, không dùng markdown.`;
 
 /** @returns {{ status: 'dat'|'khong_dat'|'tat'|'loi', sai_sot?: string[], note?: string }} */

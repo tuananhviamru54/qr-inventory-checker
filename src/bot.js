@@ -4,6 +4,7 @@ import { collect, dataAgeMinutes, runPipeline, telegramOf } from './index.js';
 import { Progress } from './progress.js';
 import { aiEnabled, describeAiError } from './ai.js';
 import { draftAnswer } from './agents/answer.js';
+import { finalizeAnswer } from './agents/expert.js';
 import { reviewDraft, reviewSection } from './agents/reviewer.js';
 import { supervisionSection } from './report.js';
 import { escapeHtml } from './util.js';
@@ -15,13 +16,13 @@ const HELP = `🤖 <b>Bot đối chiếu MISA AMIS</b> (chỉ đọc)
 /trogiup — xem hướng dẫn này
 Hoặc gõ câu hỏi bất kỳ về tồn kho, ví dụ: <i>"Mã A12_2 còn tồn bao nhiêu?"</i>, <i>"Những mã nào đang âm kho?"</i>
 
-Mọi câu trả lời đều được kế toán trưởng (AI) đối chiếu lại với số liệu gốc trước khi gửi.`;
+Mọi câu trả lời đều qua chuyên gia (AI) đối chiếu và chốt, rồi kế toán trưởng (AI) kiểm tra độ chính xác trước khi gửi.`;
 
 const timingsFile = (config) => path.join(config.dirs.output, 'thoi-gian.json');
 
 async function handleReport(config, tg, { fresh, headed }) {
   const reuse = !fresh && dataAgeMinutes(config) <= config.bot.maxDataAgeMinutes;
-  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'review', 'send'];
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'expert', 'review', 'send'];
   const progress = new Progress(tg, { title: 'Đang lập báo cáo đối chiếu…', stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
   await progress.start();
   try {
@@ -39,7 +40,7 @@ export async function handleQuestion(config, tg, question, { headed } = {}) {
     return null;
   }
   const reuse = dataAgeMinutes(config) <= config.bot.maxDataAgeMinutes;
-  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'answer', 'review', 'send'];
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'answer', 'expert', 'review', 'send'];
   const progress = new Progress(tg, { title: 'Đang xử lý câu hỏi của bạn…', stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
   await progress.start();
   try {
@@ -48,6 +49,9 @@ export async function handleQuestion(config, tg, question, { headed } = {}) {
     for (let round = 1; ; round++) {
       await progress.stage('answer');
       draft = await draftAnswer(config.ai, { question, facts: data.facts, datasets: data.datasets, feedback });
+      await progress.stage('expert');
+      const finalized = await finalizeAnswer(config.ai, { question, draft: draft.text, facts: data.facts, datasets: data.datasets, feedback });
+      draft = { ...draft, text: finalized.text };
       await progress.stage('review');
       review = await reviewDraft(config.ai, { draft: draft.text, facts: { ...data.facts, bang_du_lieu: tablesFor(data.datasets) }, question });
       if (review.status !== 'khong_dat' || round >= config.bot.maxReviewRounds) break;

@@ -8,8 +8,9 @@ import { AmisSession } from './amis.js';
 import { readDataset } from './excel.js';
 import { runChecks } from './checks.js';
 import { buildMessage, writeIssuesWorkbook, supervisionSection } from './report.js';
-import { buildFacts } from './agents/facts.js';
-import { reviewDraft, reviewSection } from './agents/reviewer.js';
+import { buildFacts, focusRows } from './agents/facts.js';
+import { analyzeAndReview } from './agents/orchestrate.js';
+import { reviewSection } from './agents/reviewer.js';
 import { Telegram } from './telegram.js';
 import { resolvePeriod, escapeHtml } from './util.js';
 
@@ -94,7 +95,8 @@ export async function collect(config, { download = true, headed = false, log = c
   // 3. Kiểm tra chéo
   const results = runChecks(config.checks, datasets);
   const facts = buildFacts({ period, targetDb: config.secrets.targetDb, datasets, results });
-  return { period, datasets, results, blocked, supervision, facts };
+  const focus = focusRows(config, datasets, results);
+  return { period, datasets, results, blocked, supervision, facts, focus };
 }
 
 /** Tuổi (phút) của file AMIS cũ nhất trong downloads/, hoặc Infinity nếu thiếu file. */
@@ -114,12 +116,11 @@ export function dataAgeMinutes(config) {
 export async function runPipeline(config, { download = true, send = true, headed = false, log = console.log, onStage = () => {}, tg } = {}) {
   tg = send ? tg ?? telegramOf(config) : null;
   const data = await collect(config, { download, headed, log, onStage, tg });
-  const { period, datasets, results, blocked, supervision, facts } = data;
+  const { period, datasets, results, blocked, supervision, facts, focus } = data;
 
   const draft = buildMessage({ title: config.title, period, datasets, results, targetDb: config.secrets.targetDb, maxLines: config.maxLinesPerCheck });
-  await onStage('review');
-  const review = await reviewDraft(config.ai, { draft: draft.replace(/<[^>]+>/g, ''), facts });
-  const message = [draft, reviewSection(review), supervisionSection(supervision, blocked)].filter(Boolean).join('\n\n');
+  const { expert, review } = await analyzeAndReview(config, { draftHtml: draft, facts, focus, onStage });
+  const message = [draft, expert.html, reviewSection(review), supervisionSection(supervision, blocked)].filter(Boolean).join('\n\n');
 
   fs.mkdirSync(config.dirs.output, { recursive: true });
   const stamp = period.today.split('/').reverse().join('-');
@@ -139,7 +140,7 @@ export async function runPipeline(config, { download = true, send = true, headed
     }
     log('✓ Đã gửi báo cáo về Telegram');
   }
-  return { ...data, review, message, issuesFile: hasIssues ? issuesFile : null };
+  return { ...data, expert, review, message, issuesFile: hasIssues ? issuesFile : null };
 }
 
 async function main() {

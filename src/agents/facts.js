@@ -29,3 +29,23 @@ export function datasetCsv(ds) {
   const esc = (v) => (typeof v === 'string' && /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   return [cols.join(','), ...ds.rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
 }
+
+/** Các dòng dữ liệu liên quan tới những vấn đề đã phát hiện (để chuyên gia đối chiếu mà không phải đọc cả bảng). */
+export function focusRows(config, datasets, results, limit = 80) {
+  const keys = new Set(results.flatMap((r) => r.issues.map((i) => String(i.key).toUpperCase())));
+  const out = {};
+  for (const src of config.sources) {
+    const ds = datasets[src.id];
+    if (!ds?.rows?.length) continue;
+    const keyFields = src.parse.key;
+    const rows = ds.rows.filter((r) => keys.has(keyFields.map((k) => String(r[k]).toUpperCase()).join(' | '))).slice(0, limit);
+    if (rows.length) out[ds.name] = rows;
+  }
+  return out;
+}
+
+/** Toàn bộ các bảng dữ liệu dạng CSV để đưa cho trợ lý/chuyên gia khi trả lời câu hỏi. */
+export function tablesText(datasets) {
+  return Object.values(datasets).filter((d) => d.rows?.length)
+    .map((d) => `BẢNG "${d.name}" (${d.rows.length} dòng):\n${datasetCsv(d)}`).join('\n\n');
+}

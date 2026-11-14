@@ -51,12 +51,19 @@ Chạy `npm run bot` để bot nghe tin nhắn Telegram (chỉ phục vụ đún
 | câu hỏi bất kỳ | Ví dụ "Mã A12_2 còn tồn bao nhiêu?", "Những mã nào đang âm kho?" |
 
 **Thanh tiến độ:** ngay khi nhận yêu cầu, bot gửi một tin liệt kê các bước (đăng nhập → xuất báo cáo → kiểm tra chéo → trợ
-lý soạn trả lời → kế toán trưởng kiểm soát → gửi), cập nhật vài giây một lần: bước nào xong, đã chạy bao lâu, dự kiến còn
+lý soạn trả lời → chuyên gia chốt → kế toán trưởng kiểm tra → gửi), cập nhật vài giây một lần: bước nào xong, đã chạy bao lâu, dự kiến còn
 bao lâu (tính từ thời lượng các lần chạy trước, lưu ở `output/thoi-gian.json`).
 
-**1. Agent kế toán trưởng** (`src/agents/reviewer.js`) — chỉ kiểm tra **độ chính xác**, không nhận xét hay đề xuất. Nó nhận
+**1. Agent chuyên gia phân tích** (`src/agents/expert.js`) — chuyên gia kế toán kho đối chiếu độc lập, phân tích và **chốt kết luận**.
+Với báo cáo: nhận kết quả các phép kiểm tra cùng các dòng dữ liệu liên quan, tự soát lại kết luận của chương trình (báo
+khớp mà dữ liệu lệch thì ghi là "HỆ THỐNG"), gom nhóm vấn đề theo mức ưu tiên, nêu giả thuyết nguyên nhân (chỉ khi có
+căn cứ từ số liệu, luôn bắt đầu bằng "Có thể") và việc cần làm, rồi chốt mức độ 🟢 Ổn / 🟡 Cần chú ý / 🔴 Nghiêm trọng.
+Với câu hỏi tự do: kiểm lại bản nháp của trợ lý theo bảng dữ liệu, sửa nếu sai và có thể thêm tối đa 3 câu phân tích.
+Phép kiểm tra bị bỏ qua không bao giờ được chốt là "ổn".
+
+**2. Agent kế toán trưởng** (`src/agents/reviewer.js`) — kiểm tra **độ chính xác** của toàn bộ nội dung gồm cả phần chuyên gia, không tự thêm nhận xét hay đề xuất. Nó nhận
 số liệu gốc (do chương trình tính từ file AMIS) và bản nháp, đối chiếu từng con số, mã hàng và kết luận. Nếu đúng: tin
-gửi đi chỉ có thêm một dòng "✔ Đã kiểm tra chéo độ chính xác". Nếu sai: với câu hỏi tự do thì trả lại cho trợ lý soạn lại
+gửi đi chỉ có thêm một dòng "✔ Đã kiểm tra chéo độ chính xác". Nếu sai: với câu hỏi tự do thì trả lại cho chuyên gia/trợ lý làm lại
 (tối đa `bot.maxReviewRounds` vòng); vẫn sai thì câu trả lời được gửi kèm cảnh báo "KHÔNG ĐẠT" nêu rõ điểm sai. Agent này
 không được sửa số liệu trong báo cáo.
 
@@ -67,7 +74,7 @@ nút mang nghĩa ghi) luôn áp dụng và AI không gỡ được; khi có kho�
 (đọc / xác thực / xuất báo cáo / đo lường được qua; ghi dữ liệu / ghi cài đặt / không rõ bị chặn), kết quả lưu ở
 `output/giam-sat-phan-loai.json`. Nhật ký đầy đủ: `output/giam-sat.log`; tóm tắt nằm cuối mỗi tin Telegram.
 
-**3. Agent trợ lý** (`src/agents/answer.js`) — soạn câu trả lời cho câu hỏi tự do, chỉ dựa trên bảng tồn kho vừa xuất.
+**4. Agent trợ lý** (`src/agents/answer.js`) — soạn câu trả lời cho câu hỏi tự do, chỉ dựa trên bảng tồn kho vừa xuất.
 
 Các agent AI cần `ANTHROPIC_API_KEY` trong `.env` (model mặc định `claude-opus-5-5`, đổi ở `ai.model` trong
 `config.json`). Không có khoá: `/baocao` vẫn chạy, giám sát dùng luật cứng, tin báo cáo ghi rõ kế toán trưởng AI chưa bật,

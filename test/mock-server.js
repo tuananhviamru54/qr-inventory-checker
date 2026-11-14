@@ -45,11 +45,24 @@ export async function startMock() {
         state.ai.push('supervisor');
       } else if (system.includes('Bạn là kế toán trưởng')) {
         state.reviewCalls++;
-        const reject = user.includes('SP002 còn 999');
+        const reject = user.includes('SP002 còn 999') || user.includes('SAI_LECH_MOCK');
         out = reject
           ? { ket_luan: 'khong_dat', sai_sot: ['Bản nháp ghi SP002 còn 999, số liệu gốc là 180'] }
           : { ket_luan: 'dat', sai_sot: [] };
         state.ai.push(reject ? 'review:reject' : 'review:ok');
+      } else if (system.includes('Bạn là chuyên gia phân tích')) {
+        if (user.includes('BẢN NHÁP CỦA TRỢ LÝ')) {
+          const draft = /BẢN NHÁP CỦA TRỢ LÝ:\\n(.*?)\\n/.exec(user)?.[1] ?? '';
+          out = { tra_loi: draft, phan_tich: 'Có thể SP002 đã xuất chưa kịp ghi nhận phiếu.', da_sua: false };
+          state.ai.push('expert:answer');
+        } else {
+          const retry = user.includes('bị kế toán trưởng trả lại');
+          out = {
+            ket_luan: 'Có 2 mã lệch kiểm kê và 1 mã âm kho; cần rà soát phiếu nhập xuất.', muc_do: 'can_chu_y',
+            phat_hien: [{ ma: 'SP003', ten: 'Thước kẻ', van_de: retry ? 'tồn cuối kỳ -5' : 'SAI_LECH_MOCK', nguyen_nhan_co_the: 'Có thể xuất trước khi nhập phiếu.', viec_can_lam: 'Rà soát phiếu nhập SP003' }],
+          };
+          state.ai.push('expert:report');
+        }
       } else {
         out = { tra_loi: user.includes('kế toán trưởng trả lại') ? 'SP002 Vở kẻ ngang còn 180 quyển' : 'SP002 còn 999', du_can_cu: true };
         state.ai.push('answer');
