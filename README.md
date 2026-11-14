@@ -166,10 +166,18 @@ Nếu trang đăng nhập không được nhận diện đúng, khai báo lại 
 
 ### Một tài khoản, một phiên (quan trọng)
 
-MISA chỉ cho **một phiên đăng nhập cho mỗi tài khoản**: đăng nhập ở nơi mới sẽ đẩy phiên cũ ra. Vì vậy **không dùng chung
-tài khoản của người thật cho bot** — mỗi lần bot chạy có thể làm người đó bị văng khỏi AMIS (mất dữ liệu đang nhập dở),
-và ngược lại. Nếu AMIS hỏi "Đang có người dùng khác sử dụng tài khoản này", bot dừng lại, báo về Telegram kèm ảnh màn
-hình và **không bấm "Tiếp tục đăng nhập"**. Hãy tạo một tài khoản AMIS riêng cho bot, chỉ có quyền xem/xuất báo cáo.
+MISA chỉ cho **một phiên đăng nhập cho mỗi tài khoản**: đăng nhập ở nơi mới sẽ đẩy phiên cũ ra. Nếu bot dùng chung tài
+khoản với người thật, mỗi lần chạy có thể làm người đó bị văng khỏi AMIS (mất dữ liệu đang nhập dở). Cách tốt nhất vẫn là
+**tạo một tài khoản AMIS riêng cho bot**, chỉ có quyền xem/xuất báo cáo.
+
+Khi AMIS hỏi "Đang có người dùng khác sử dụng tài khoản này", bot **dừng lại và hỏi bạn trên Telegram** (kèm thiết bị/IP
+đang dùng) với hai nút:
+- **✅ Đăng nhập tiếp**: bot mới bấm "Tiếp tục đăng nhập" (người kia bị đăng xuất), rồi làm việc bình thường.
+- **⛔ Huỷ**: bot dừng, không đụng tới phiên của người kia.
+
+Không bấm gì trong `amis.concurrentDecisionMs` (mặc định 10 phút) thì bot **tự huỷ**. Chỉ bấm của đúng chat
+`TELEGRAM_CHAT_ID` mới được tính. Chạy không có Telegram (ví dụ `--dry-run`) thì luôn huỷ. Mọi quyết định được ghi vào
+`output/giam-sat.log`. Đây là lần bấm duy nhất được phép với nút này; với mọi thao tác khác nó vẫn nằm trong danh sách cấm.
 
 ### Xác thực 2 lớp
 

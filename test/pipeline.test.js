@@ -112,19 +112,58 @@ test('sai dữ liệu kế toán → dừng, không xuất báo cáo', async () 
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('tài khoản đang có người khác dùng: dừng, báo rõ, không bấm "Tiếp tục đăng nhập"', async () => {
-  const mock = await startMock();
+// Giả lập người dùng bấm nút trên Telegram: tìm tin hỏi có nút, rồi đẩy callback_query vào hàng đợi cập nhật.
+function pressWhenAsked(mock, value) {
+  let pressed = false;
+  const timer = setInterval(() => {
+    if (pressed) return;
+    for (const c of mock.state.telegram) {
+      const m = c.method === 'sendMessage' && /d:(\w+):1/.exec(c.text);
+      if (m) {
+        pressed = true;
+        mock.state.updates.push({ update_id: 900, callback_query: { id: 'cq1', data: `d:${m[1]}:${value}`, message: { chat: { id: 42 } } } });
+      }
+    }
+  }, 100);
+  return () => clearInterval(timer);
+}
+
+test('tài khoản đang có người khác dùng: hỏi qua Telegram, chỉ đăng nhập tiếp khi người dùng đồng ý', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  const results = {};
   try {
-    mock.state.concurrent = true;
-    const config = makeConfig(mock, root);
-    await assert.rejects(runPipeline(config, { log: () => {} }), /đang được dùng ở nơi khác \(Tài khoản này đang được sử dụng trên Window x64 \(1\.2\.3\.4\)/);
-    assert.deepEqual(mock.state.writes, []);                      // không có yêu cầu đăng nhập đè nào được gửi
-    assert.equal(mock.state.exports.length, 0);
-    assert.deepEqual(mock.state.telegram.map((c) => c.method), ['sendMessage', 'sendPhoto']);
-    assert.match(JSON.parse(mock.state.telegram[0].text).text, /KHÔNG tự đăng nhập đè/);
-    assert.equal(forbiddenLabel('Tiếp tục đăng nhập'), 'tiep tuc dang nhap');
-  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+    for (const mode of ['yes', 'no', 'timeout', 'khong-co-kenh']) {
+      const mock = await startMock();
+      try {
+        mock.state.concurrent = true;
+        const config = makeConfig(mock, root);
+        config.amis.concurrentDecisionMs = 2500;
+        const stop = mode === 'yes' ? pressWhenAsked(mock, 1) : mode === 'no' ? pressWhenAsked(mock, 0) : () => {};
+        const run = runPipeline(config, { log: () => {}, send: mode !== 'khong-co-kenh' });
+        if (mode === 'yes') {
+          const out = await run; stop();
+          assert.equal(mock.state.forced, 1);                        // đã bấm "Tiếp tục đăng nhập" đúng 1 lần
+          assert.equal(mock.state.exports.length, 1);                // và xuất báo cáo bình thường
+          assert.equal(out.datasets.ton_kho.rows.length, 5);
+          const texts = mock.state.telegram.filter((c) => c.method === 'sendMessage').map((c) => c.text);
+          assert.match(texts[0], /Window x64 \(1\.2\.3\.4\)/);
+          assert.match(texts[0], /inline_keyboard/);
+          assert.ok(mock.state.telegram.some((c) => c.method === 'answerCallbackQuery'));
+          assert.ok(mock.state.telegram.some((c) => c.method === 'editMessageText' && /Bạn đã chọn: đăng nhập tiếp/.test(c.text)));
+          assert.match(fs.readFileSync(path.join(root, 'output', 'giam-sat.log'), 'utf8'), /QUYẾT ĐỊNH CỦA NGƯỜI DÙNG\tyes/);
+        } else {
+          await assert.rejects(run, mode === 'no' ? /Bạn đã chọn huỷ/ : mode === 'timeout' ? /tự huỷ để bảo đảm an toàn/ : /KHÔNG tự đăng nhập đè/);
+          stop();
+          assert.equal(mock.state.forced, 0);                        // không bấm gì: phiên của người kia an toàn
+          assert.deepEqual(mock.state.writes, []);
+          assert.equal(mock.state.exports.length, 0);
+        }
+        results[mode] = true;
+      } finally { await mock.close(); }
+    }
+    assert.deepEqual(Object.keys(results), ['yes', 'no', 'timeout', 'khong-co-kenh']);
+    assert.equal(forbiddenLabel('Tiếp tục đăng nhập'), 'tiep tuc dang nhap'); // vẫn nằm trong luật cứng cho mọi lần bấm thông thường
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('thiếu file kiểm kê → bỏ qua phép so sánh, vẫn chạy các phép còn lại (không tải lại)', async () => {

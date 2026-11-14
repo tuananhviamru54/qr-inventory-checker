@@ -115,12 +115,14 @@ export async function runBot(config, opts = {}) {
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhấn Ctrl+C để dừng.`);
   let offset;
   let busy = false;
+  tg.pollerActive = true; // vòng lặp này nhận cả lần bấm nút (ví dụ quyết định đăng nhập tiếp)
   for (;;) {
     let updates = [];
     try { updates = await tg.getUpdates(offset, config.bot.pollSeconds ?? 50); }
     catch (e) { console.error(`Lỗi lấy tin nhắn: ${e.message}`); await new Promise((r) => setTimeout(r, 5000)); continue; }
     for (const u of updates) {
       offset = u.update_id + 1;
+      if (u.callback_query) { await tg.handleCallback(u.callback_query).catch(() => {}); continue; }
       const msg = u.message;
       if (!msg?.text || String(msg.chat.id) !== owner) continue;
       if (busy) { await tg.sendMessage('⏳ Đang xử lý yêu cầu trước, vui lòng chờ xong rồi gửi lại.').catch(() => {}); continue; }

@@ -25,7 +25,7 @@ export async function buildStockWorkbook() {
 }
 
 export async function startMock() {
-  const state = { logins: [], exports: [], telegram: [], writes: [], reads: [], ai: [], reviewCalls: 0, updates: [], concurrent: false };
+  const state = { logins: [], exports: [], telegram: [], writes: [], reads: [], ai: [], reviewCalls: 0, updates: [], concurrent: false, forced: 0 };
   const xlsx = await buildStockWorkbook();
   const html = (res, body) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset="utf-8">${body}`); };
   const readBody = (req) => new Promise((ok) => { const b = []; req.on('data', (c) => b.push(c)); req.on('end', () => ok(Buffer.concat(b))); });
@@ -90,6 +90,7 @@ export async function startMock() {
       return html(res, `<form method="post" action="/login"><input name="username"><input type="password" name="password"><button type="submit">Đăng nhập</button></form>`);
     }
     if (!authed) { res.writeHead(302, { location: '/login' }); return res.end(); }
+    if (url.pathname === '/api/force/login') { await readBody(req); state.forced++; state.concurrent = false; res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{}'); }
     if (url.pathname.startsWith('/api/')) {
       await readBody(req);
       (url.pathname === '/api/report/GetData' ? state.reads : state.writes).push(`${req.method} ${url.pathname}`);
@@ -116,7 +117,7 @@ export async function startMock() {
         <div id="menu" hidden><a href="#" onclick="location.href='/export?from='+encodeURIComponent(f.value)+'&to='+encodeURIComponent(t.value);return false">Excel</a></div></div>`);
     }
     if (state.concurrent) {
-      return html(res, `<h3>Đang có người dùng khác sử dụng tài khoản này</h3><p>Tài khoản này đang được sử dụng trên <b>Window x64 (1.2.3.4)</b>. Tiếp tục đăng nhập trên máy này, tài khoản sẽ đăng xuất khỏi tất cả các máy khác.</p><button>Hủy</button><button onclick="fetch('/api/force/login',{method:'POST'})">Tiếp tục đăng nhập</button>`);
+      return html(res, `<h3>Đang có người dùng khác sử dụng tài khoản này</h3><p>Tài khoản này đang được sử dụng trên <b>Window x64 (1.2.3.4)</b>. Tiếp tục đăng nhập trên máy này, tài khoản sẽ đăng xuất khỏi tất cả các máy khác.</p><button>Hủy</button><button onclick="fetch('/api/force/login',{method:'POST'}).then(()=>location.reload())">Tiếp tục đăng nhập</button>`);
     }
     return html(res, `<header>CÔNG TY DEMO <span>KHO QUẢNG NINH</span></header><div id="app-home">Xin chào</div><a href="/report">Tổng hợp tồn kho</a>`);
   });

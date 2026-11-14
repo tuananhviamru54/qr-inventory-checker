@@ -42,6 +42,12 @@ export async function collect(config, { download = true, headed = false, log = c
   if (download && amisSources.length) {
     await onStage('login');
     const session = new AmisSession(config, { headed, log });
+    if (tg) {
+      const timeoutMs = config.amis.concurrentDecisionMs ?? 600000;
+      session.onConcurrent = (detail) => tg.ask(
+        `🚨 <b>${escapeHtml(config.title)}</b>\nAMIS báo tài khoản đang được dùng ở nơi khác:\n<i>${escapeHtml(detail)}</i>\n\nNếu đăng nhập tiếp, người đang dùng sẽ bị <b>đăng xuất khỏi AMIS</b> (có thể mất dữ liệu đang nhập dở).\nBạn muốn bot đăng nhập tiếp không? Không trả lời trong ${Math.round(timeoutMs / 60000) || '<1'} phút, bot tự huỷ.`,
+        { timeoutMs });
+    }
     try {
       await session.open();
       await session.login(config.secrets);

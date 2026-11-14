@@ -79,8 +79,29 @@ export class AmisSession {
     return detail.replace(/\s+/g, ' ').trim() || 'Tài khoản đang được dùng ở nơi khác';
   }
 
-  throwConcurrent(detail) {
-    throw new LoginError(`Tài khoản đang được dùng ở nơi khác (${detail}). Bot KHÔNG tự đăng nhập đè vì sẽ đẩy người đó ra khỏi AMIS. Hãy dùng một tài khoản AMIS riêng cho bot, hoặc chạy lại khi tài khoản này không có ai dùng.`);
+  throwConcurrent(detail, why) {
+    throw new LoginError(`Tài khoản đang được dùng ở nơi khác (${detail}). ${why ?? 'Bot KHÔNG tự đăng nhập đè vì sẽ đẩy người đó ra khỏi AMIS. Hãy dùng một tài khoản AMIS riêng cho bot, hoặc chạy lại khi tài khoản này không có ai dùng.'}`);
+  }
+
+  /**
+   * Gặp màn hình "Đang có người dùng khác...": hỏi người dùng qua `onConcurrent` (Telegram).
+   * Chỉ khi nhận được 'yes' mới bấm "Tiếp tục đăng nhập"; không có kênh hỏi, 'no' hoặc hết giờ → dừng. Trả về true nếu vừa đăng nhập đè.
+   */
+  async resolveConcurrent() {
+    const detail = await this.concurrentSessionNotice();
+    if (!detail) return false;
+    if (this.concurrentHandled || !this.onConcurrent) this.throwConcurrent(detail);
+    const decision = await this.onConcurrent(detail);
+    const stamp = new Date().toISOString();
+    await fs.appendFile(path.join(this.dirs.output, 'giam-sat.log'), `${stamp}\tQUYẾT ĐỊNH CỦA NGƯỜI DÙNG\t${decision}\t${detail}\n`).catch(() => {});
+    if (decision === 'no') this.throwConcurrent(detail, 'Bạn đã chọn huỷ nên bot không đăng nhập và không đụng tới phiên của người đang dùng.');
+    if (decision !== 'yes') this.throwConcurrent(detail, 'Không nhận được quyết định của bạn trong thời gian chờ nên bot tự huỷ để bảo đảm an toàn.');
+    this.concurrentHandled = true;
+    this.log('→ Bạn đã đồng ý: đăng nhập tiếp (người đang dùng sẽ bị đăng xuất)');
+    // Thao tác duy nhất được phép bấm nút này, chỉ sau khi người dùng đồng ý; nằm ngoài safeClick vì nút bị cấm trong luật cứng.
+    await this.page.locator("button:has-text('Tiếp tục đăng nhập')").first().click();
+    await this.page.waitForTimeout(2000);
+    return true;
   }
 
   /**
@@ -96,8 +117,7 @@ export class AmisSession {
     let submitted = false, otpSent = 0, clearSince = 0;
 
     while (Date.now() < deadline) {
-      const other = await this.concurrentSessionNotice();
-      if (other && !manualWaitMs) this.throwConcurrent(other);
+      if (!manualWaitMs && (await this.resolveConcurrent())) { submitted = true; clearSince = 0; continue; }
       const hasPwd = await this.visible(sel.password);
       const hasOtp = !hasPwd && await this.visible(sel.otp);
       if (hasPwd && !submitted && username && password) {
@@ -139,14 +159,15 @@ export class AmisSession {
    */
   async verifyDatabase(targetDb) {
     if (!targetDb) return;
-    const shown = await this.page.getByText(targetDb, { exact: true }).first()
-      .waitFor({ state: 'visible', timeout: this.amis.targetDbWaitMs ?? 30000 }).then(() => true, () => false);
-    if (!shown) {
-      const other = await this.concurrentSessionNotice();
-      if (other) this.throwConcurrent(other);
-      throw new Error(`Dữ liệu kế toán đang mở không phải "${targetDb}". Chạy \`npm run login\`, chuyển sang đúng dữ liệu trong trình duyệt rồi chạy lại.`);
+    const wait = this.amis.targetDbWaitMs ?? 30000;
+    const name = this.page.getByText(targetDb, { exact: true }).first();
+    let deadline = Date.now() + wait;
+    while (Date.now() < deadline) {
+      if (await name.isVisible().catch(() => false)) { this.log(`✓ Đúng dữ liệu: ${targetDb}`); return; }
+      if (await this.resolveConcurrent()) deadline = Date.now() + wait; // đã đăng nhập đè theo quyết định của người dùng
+      await this.page.waitForTimeout(500);
     }
-    this.log(`✓ Đúng dữ liệu: ${targetDb}`);
+    throw new Error(`Dữ liệu kế toán đang mở không phải "${targetDb}". Chạy \`npm run login\`, chuyển sang đúng dữ liệu trong trình duyệt rồi chạy lại.`);
   }
 
   /** Chạy danh sách bước của 1 báo cáo, trả về đường dẫn file đã tải. */
