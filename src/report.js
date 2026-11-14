@@ -4,7 +4,7 @@ import { escapeHtml } from './util.js';
 
 const ICON = { ok: '✅', fail: '❌', skipped: '⚠️' };
 
-export function buildMessage({ title, period, datasets, results, maxLines = 10 }) {
+export function buildMessage({ title, period, datasets, results, blocked = [], maxLines = 10 }) {
   const lines = [`📊 <b>${escapeHtml(title)}</b>`, `🗓 Kỳ: ${period.fromDate} – ${period.toDate}`, ''];
   lines.push('<b>Nguồn dữ liệu</b>');
   for (const ds of Object.values(datasets)) {
@@ -27,6 +27,10 @@ export function buildMessage({ title, period, datasets, results, maxLines = 10 }
     ? `🔴 Kết luận: ${fails}/${results.length} phép kiểm tra có chênh lệch.`
     : skipped ? `🟡 Kết luận: không phát hiện chênh lệch, nhưng ${skipped} phép kiểm tra bị bỏ qua.`
     : '🟢 Kết luận: tất cả số liệu khớp.');
+  if (blocked.length) {
+    lines.push('', `🔒 Chế độ chỉ đọc đã chặn ${blocked.length} yêu cầu ghi dữ liệu:`);
+    for (const b of blocked.slice(0, 5)) lines.push(`   • ${escapeHtml(b.method)} ${escapeHtml(b.url)} (${escapeHtml(b.reason)})`);
+  }
   return lines.join('\n');
 }
 

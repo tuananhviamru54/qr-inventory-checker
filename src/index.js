@@ -32,6 +32,7 @@ export async function runPipeline(config, { download = true, send = true, headed
   const datasets = {};
   const amisSources = config.sources.filter((s) => s.type === 'amis');
   const files = {};
+  let blocked = [];
 
   // 1. Tải báo cáo từ AMIS
   if (download && amisSources.length) {
@@ -59,6 +60,7 @@ export async function runPipeline(config, { download = true, send = true, headed
       }
       throw e;
     }
+    blocked = session.audit?.blocked ?? [];
     await session.close();
   }
 
@@ -81,7 +83,7 @@ export async function runPipeline(config, { download = true, send = true, headed
 
   // 3. Kiểm tra chéo
   const results = runChecks(config.checks, datasets);
-  const message = buildMessage({ title: config.title, period, datasets, results, maxLines: config.maxLinesPerCheck });
+  const message = buildMessage({ title: config.title, period, datasets, results, blocked, maxLines: config.maxLinesPerCheck });
   fs.mkdirSync(config.dirs.output, { recursive: true });
   const stamp = period.today.split('/').reverse().join('-');
   const issuesFile = path.join(config.dirs.output, `chenh-lech-${stamp}.xlsx`);
@@ -100,7 +102,7 @@ export async function runPipeline(config, { download = true, send = true, headed
     }
     log('✓ Đã gửi báo cáo về Telegram');
   }
-  return { period, datasets, results, message, issuesFile: hasIssues ? issuesFile : null };
+  return { period, datasets, results, message, blocked, issuesFile: hasIssues ? issuesFile : null };
 }
 
 async function main() {

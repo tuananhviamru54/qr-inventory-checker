@@ -9,6 +9,7 @@ import { withDefaults } from '../src/config.js';
 import { runPipeline } from '../src/index.js';
 import { LoginError } from '../src/amis.js';
 import { parseNumber, resolvePeriod, totp } from '../src/util.js';
+import { blockReason, forbiddenLabel } from '../src/readonly.js';
 
 const base = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 
@@ -105,7 +106,44 @@ test('thiếu file kiểm kê → bỏ qua phép so sánh, vẫn chạy các ph�
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('chỉ đọc: từ chối bấm nút ghi dữ liệu, chặn yêu cầu ghi ở tầng mạng', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    // 1. Bước cấu hình cố bấm "Cất" (kể cả bằng selector không chứa chữ) → bị từ chối, không có gì gửi lên máy chủ
+    for (const selector of ['text=Cất', '#cat']) {
+      const config = makeConfig(mock, root);
+      config.sources[0].steps.splice(5, 0, { click: selector });
+      const out = await runPipeline(config, { log: () => {}, send: false });
+      assert.match(out.datasets.ton_kho.error, /Chế độ chỉ đọc/);
+    }
+    assert.deepEqual(mock.state.writes, []);
+    assert.equal(mock.state.exports.length, 0);
+
+    // 2. Nút trông vô hại nhưng trang tự gửi yêu cầu ghi → bị chặn ở tầng mạng, yêu cầu đọc vẫn qua
+    const config = makeConfig(mock, root);
+    config.sources[0].steps.splice(5, 0, { click: "button:has-text('Nạp dữ liệu')" }, { wait: 500 });
+    const out = await runPipeline(config, { log: () => {} });
+    assert.deepEqual(mock.state.writes, []);
+    assert.deepEqual(mock.state.reads, ['POST /api/report/GetData']);
+    assert.deepEqual(out.blocked.map((b) => b.method).sort(), ['DELETE', 'POST']);
+    assert.equal(out.datasets.ton_kho.rows.length, 5);
+    assert.match(JSON.parse(mock.state.telegram[0].text).text, /đã chặn 2 yêu cầu ghi/);
+    assert.match(fs.readFileSync(path.join(root, 'output', 'nhat-ky-yeu-cau.log'), 'utf8'), /CHAN\tDELETE/);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('tiện ích', async () => {
+  assert.equal(blockReason('GET', 'https://x/api/voucher/delete'), null);
+  assert.ok(blockReason('PUT', 'https://x/api/report'));
+  assert.ok(blockReason('POST', 'https://x/api/INVoucher/SaveVoucher'));
+  assert.equal(blockReason('POST', 'https://x/api/report/ExportExcel'), null);
+  assert.equal(blockReason('POST', 'https://x/api/a/update', ['/api/a/update$']), null);
+  assert.equal(forbiddenLabel('Xuất khẩu'), null);
+  assert.equal(forbiddenLabel('Đồng ý'), null);
+  assert.equal(forbiddenLabel('Xem thêm'), null);
+  assert.equal(forbiddenLabel('Cất và Thêm'), 'cat');
+  assert.equal(forbiddenLabel(' Ghi sổ '), 'ghi so');
   assert.equal(parseNumber('1.234,56'), 1234.56);
   assert.equal(parseNumber('1,234.56'), 1234.56);
   assert.equal(parseNumber('(1.200)'), -1200);

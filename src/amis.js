@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { template, totp } from './util.js';
+import { installNetworkGuard, assertStepAllowed, assertElementAllowed } from './readonly.js';
 
 export class LoginError extends Error {}
 
@@ -34,14 +35,20 @@ export class AmisSession {
       locale: 'vi-VN',
       timezoneId: 'Asia/Ho_Chi_Minh',
       viewport: { width: 1440, height: 900 },
+      serviceWorkers: 'block', // để mọi yêu cầu mạng đều đi qua lớp chặn chỉ-đọc
       executablePath: process.env.CHROMIUM_PATH || undefined,
       args: process.env.CHROMIUM_NO_SANDBOX ? ['--no-sandbox'] : [],
     });
     this.context.setDefaultTimeout(this.amis.timeoutMs ?? 30000);
+    this.audit = await installNetworkGuard(this.context, { allowPost: this.amis.readOnly?.allowPost, log: this.log });
     this.page = this.context.pages()[0] ?? await this.context.newPage();
   }
 
   async close() {
+    if (this.audit?.nonGet.length) {
+      const lines = this.audit.nonGet.map((r) => `${r.time}\t${r.blocked ? 'CHAN' : 'cho-qua'}\t${r.method}\t${r.url}\t${r.blocked ?? ''}`);
+      await fs.appendFile(path.join(this.dirs.output, 'nhat-ky-yeu-cau.log'), lines.join('\n') + '\n').catch(() => {});
+    }
     await this.context?.close().catch(() => {});
   }
 
@@ -111,12 +118,19 @@ export class AmisSession {
     const { page } = this;
     let saved = null;
     const t = (s) => template(s, vars);
+    for (const step of source.steps) assertStepAllowed(...Object.entries(step)[0]);
+    const safeClick = async (selector) => {
+      const loc = page.locator(selector).first();
+      await loc.waitFor({ state: 'visible' });
+      await assertElementAllowed(loc);
+      await loc.click();
+    };
     for (const [i, step] of source.steps.entries()) {
       const [action, arg] = Object.entries(step)[0];
       try {
         switch (action) {
           case 'goto': await page.goto(t(arg), { waitUntil: 'domcontentloaded' }); break;
-          case 'click': await page.locator(t(arg)).first().click(); break;
+          case 'click': await safeClick(t(arg)); break;
           case 'fill': {
             const loc = page.locator(t(arg.selector)).first();
             await loc.fill(t(arg.value));
@@ -129,7 +143,7 @@ export class AmisSession {
           case 'download': {
             const [download] = await Promise.all([
               page.waitForEvent('download', { timeout: this.amis.downloadTimeoutMs ?? 120000 }),
-              page.locator(t(arg)).first().click(),
+              safeClick(t(arg)),
             ]);
             const ext = path.extname(download.suggestedFilename()) || '.xlsx';
             saved = path.join(this.dirs.downloads, `${source.id}${ext}`);

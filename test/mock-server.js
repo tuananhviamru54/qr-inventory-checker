@@ -25,7 +25,7 @@ export async function buildStockWorkbook() {
 }
 
 export async function startMock() {
-  const state = { logins: [], exports: [], telegram: [] };
+  const state = { logins: [], exports: [], telegram: [], writes: [], reads: [] };
   const xlsx = await buildStockWorkbook();
   const html = (res, body) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset="utf-8">${body}`); };
   const readBody = (req) => new Promise((ok) => { const b = []; req.on('data', (c) => b.push(c)); req.on('end', () => ok(Buffer.concat(b))); });
@@ -52,6 +52,12 @@ export async function startMock() {
       return html(res, `<form method="post" action="/login"><input name="username"><input type="password" name="password"><button type="submit">Đăng nhập</button></form>`);
     }
     if (!authed) { res.writeHead(302, { location: '/login' }); return res.end(); }
+    if (url.pathname.startsWith('/api/')) {
+      await readBody(req);
+      (url.pathname === '/api/report/GetData' ? state.reads : state.writes).push(`${req.method} ${url.pathname}`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{}');
+    }
     if (url.pathname === '/export') {
       state.exports.push(Object.fromEntries(url.searchParams));
       res.writeHead(200, {
@@ -64,6 +70,8 @@ export async function startMock() {
       return html(res, `<h1>Tổng hợp tồn kho</h1>
         <input placeholder="Từ ngày" id="f"><input placeholder="Đến ngày" id="t">
         <button onclick="document.getElementById('bar').hidden=false">Đồng ý</button>
+        <button id="cat" onclick="fetch('/api/voucher/Save',{method:'POST'})">Cất</button>
+        <button onclick="fetch('/api/report/GetData',{method:'POST'});fetch('/api/voucher/SaveVoucher',{method:'POST'}).catch(()=>{});fetch('/api/voucher/1',{method:'DELETE'}).catch(()=>{})">Nạp dữ liệu</button>
         <div id="bar" hidden><button onclick="document.getElementById('menu').hidden=false">Xuất khẩu</button>
         <div id="menu" hidden><a href="#" onclick="location.href='/export?from='+encodeURIComponent(f.value)+'&to='+encodeURIComponent(t.value);return false">Excel</a></div></div>`);
     }

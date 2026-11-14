@@ -16,6 +16,25 @@
 > phỏng đoán, chưa được chạy với tài khoản AMIS thật. Phần còn lại (đăng nhập, tải file, đọc Excel, đối chiếu, Telegram)
 > đã được kiểm thử tự động với máy chủ giả lập (`npm test`). Xem mục [Hiệu chỉnh bước xuất báo cáo](#hiệu-chỉnh-bước-xuất-báo-cáo).
 
+### Nguyên tắc cốt lõi: CHỈ ĐỌC
+
+Bot chỉ đọc và xuất báo cáo, không ghi đè hay thao tác làm thay đổi dữ liệu AMIS. Có hai lớp chặn luôn bật,
+không có tuỳ chọn tắt (`src/readonly.js`):
+
+1. **Lớp giao diện** — trước mỗi lần bấm, bot đọc chữ trên nút; nếu là thao tác ghi (Cất, Lưu, Ghi sổ, Bỏ ghi, Xoá,
+   Sửa, Thêm, Nhân bản, Nhập khẩu, Duyệt, Kết chuyển, Khoá sổ, Tính giá, Cập nhật...) thì từ chối và báo lỗi.
+   Phím bấm chỉ cho phép Enter/Escape/Tab/mũi tên. Bot chỉ điền vào ô tham số báo cáo (ngày tháng).
+2. **Lớp mạng** — chặn mọi yêu cầu `PUT`/`PATCH`/`DELETE`, và các yêu cầu `POST` có đường dẫn mang nghĩa ghi
+   (save, insert, update, delete, post, import, upload, approve...). Yêu cầu bị chặn được nêu trong tin Telegram;
+   mọi yêu cầu không phải GET đều được ghi vào `output/nhat-ky-yeu-cau.log` để rà soát.
+
+Nếu một yêu cầu *đọc* hợp lệ bị chặn nhầm (báo cáo không tải được), thêm mẫu URL vào `amis.readOnly.allowPost`
+trong `config.json` sau khi đã chắc chắn nó chỉ đọc dữ liệu.
+
+> Lớp chặn mạng dựa trên từ khoá trong URL nên không thể bảo đảm tuyệt đối với API nội bộ của AMIS. **Bảo đảm chắc
+> chắn nhất là dùng một tài khoản AMIS riêng chỉ được phân quyền Xem/In/Xuất báo cáo** — khi đó chính AMIS từ chối
+> mọi thao tác ghi. Lưu ý `npm run codegen` là trình duyệt do bạn tự thao tác, không có lớp chặn này.
+
 ### Cài đặt
 
 Cần Node.js ≥ 20.12.
