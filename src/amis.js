@@ -160,6 +160,10 @@ export class AmisSession {
   async verifyDatabase(targetDb) {
     if (!targetDb) return;
     const wait = this.amis.targetDbWaitMs ?? 30000;
+    // Sau đăng nhập MISA có thể đưa về trang Bàn làm việc chung (amisapp...) thay vì app Kế toán → mở lại app Kế toán.
+    if (new URL(this.page.url()).host !== new URL(this.amis.baseUrl).host) {
+      await this.page.goto(this.amis.baseUrl, { waitUntil: 'domcontentloaded' });
+    }
     const name = this.page.getByText(targetDb, { exact: true }).first();
     let deadline = Date.now() + wait;
     while (Date.now() < deadline) {
