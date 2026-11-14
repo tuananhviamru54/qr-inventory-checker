@@ -30,8 +30,10 @@ export function buildMessage({ title, period, datasets, results, blocked = [], t
     : skipped ? `🟡 Kết luận: không phát hiện chênh lệch, nhưng ${skipped} phép kiểm tra bị bỏ qua.`
     : '🟢 Kết luận: tất cả số liệu khớp.');
   if (blocked.length) {
-    lines.push('', `🔒 Chế độ chỉ đọc đã chặn ${blocked.length} yêu cầu ghi dữ liệu:`);
-    for (const b of blocked.slice(0, 5)) lines.push(`   • ${escapeHtml(b.method)} ${escapeHtml(b.url)} (${escapeHtml(b.reason)})`);
+    const counts = new Map();
+    for (const b of blocked) { const k = `${b.method} ${b.url} (${b.reason})`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+    lines.push('', `🔒 Chế độ chỉ đọc đã chặn ${blocked.length} yêu cầu ghi do trang AMIS tự gửi:`);
+    for (const [k, n] of [...counts].slice(0, 5)) lines.push(`   • ${escapeHtml(k)}${n > 1 ? ` ×${n}` : ''}`);
   }
   return lines.join('\n');
 }

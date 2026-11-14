@@ -115,18 +115,17 @@ export class AmisSession {
   }
 
   /**
-   * Nếu sau khi đăng nhập AMIS hiện màn hình chọn dữ liệu kế toán thì chọn đúng dữ liệu `targetDb`.
-   * Không thấy tên dữ liệu trên màn hình thì bỏ qua (đã vào thẳng dữ liệu, hoặc cần chọn trong `steps`).
+   * Xác nhận đang ở đúng dữ liệu kế toán `targetDb` (AMIS hiển thị tên dữ liệu hiện tại trên thanh tiêu đề).
+   * Bot không tự chuyển dữ liệu; nếu sai thì dừng để tránh đối chiếu nhầm sổ.
    */
-  async selectDatabase(targetDb) {
+  async verifyDatabase(targetDb) {
     if (!targetDb) return;
-    const loc = this.page.getByText(targetDb, { exact: true }).first();
-    const shown = await loc.waitFor({ state: 'visible', timeout: this.amis.targetDbWaitMs ?? 6000 }).then(() => true, () => false);
-    if (!shown) { this.log(`(Không thấy màn hình chọn dữ liệu "${targetDb}" — bỏ qua)`); return; }
-    await assertElementAllowed(loc);
-    await loc.click();
-    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
-    this.log(`✓ Đã chọn dữ liệu: ${targetDb}`);
+    const shown = await this.page.getByText(targetDb, { exact: true }).first()
+      .waitFor({ state: 'visible', timeout: this.amis.targetDbWaitMs ?? 30000 }).then(() => true, () => false);
+    if (!shown) {
+      throw new Error(`Dữ liệu kế toán đang mở không phải "${targetDb}". Chạy \`npm run login\`, chuyển sang đúng dữ liệu trong trình duyệt rồi chạy lại.`);
+    }
+    this.log(`✓ Đúng dữ liệu: ${targetDb}`);
   }
 
   /** Chạy danh sách bước của 1 báo cáo, trả về đường dẫn file đã tải. */
@@ -146,7 +145,14 @@ export class AmisSession {
       try {
         switch (action) {
           case 'goto': await page.goto(t(arg), { waitUntil: 'domcontentloaded' }); break;
-          case 'click': await safeClick(t(arg)); break;
+          case 'click': {
+            // dạng rút gọn: "selector"; dạng đầy đủ: { selector, ifVisible?, unlessVisible? }
+            if (typeof arg === 'string') { await safeClick(t(arg)); break; }
+            if (arg.ifVisible && !(await this.visible(t(arg.ifVisible)))) break;
+            if (arg.unlessVisible && (await this.visible(t(arg.unlessVisible)))) break;
+            await safeClick(t(arg.selector));
+            break;
+          }
           case 'fill': {
             const loc = page.locator(t(arg.selector)).first();
             await loc.fill(t(arg.value));
@@ -157,10 +163,17 @@ export class AmisSession {
           case 'wait': await page.waitForTimeout(arg); break;
           case 'waitFor': await page.locator(t(arg)).first().waitFor({ state: 'visible' }); break;
           case 'download': {
-            const [download] = await Promise.all([
-              page.waitForEvent('download', { timeout: this.amis.downloadTimeoutMs ?? 120000 }),
-              safeClick(t(arg)),
-            ]);
+            // dạng rút gọn: "selector"; dạng đầy đủ: { selector, confirm? } — confirm là nút xác nhận có thể hiện ra sau khi bấm
+            const spec = typeof arg === 'string' ? { selector: arg } : arg;
+            const pending = page.waitForEvent('download', { timeout: this.amis.downloadTimeoutMs ?? 120000 });
+            pending.catch(() => {});
+            await safeClick(t(spec.selector));
+            if (spec.confirm) {
+              const btn = page.locator(t(spec.confirm)).first();
+              const shown = await btn.waitFor({ state: 'visible', timeout: spec.confirmWaitMs ?? 5000 }).then(() => true, () => false);
+              if (shown) await safeClick(t(spec.confirm));
+            }
+            const download = await pending;
             const ext = path.extname(download.suggestedFilename()) || '.xlsx';
             saved = path.join(this.dirs.downloads, `${source.id}${ext}`);
             await download.saveAs(saved);
@@ -169,7 +182,7 @@ export class AmisSession {
           default: throw new Error(`Bước không hỗ trợ: ${action}`);
         }
       } catch (e) {
-        throw new Error(`Báo cáo "${source.name}" lỗi ở bước ${i + 1} (${action}: ${JSON.stringify(arg)}): ${e.message.split('\n')[0]}`);
+        throw new Error(`Báo cáo "${source.name}" lỗi ở bước ${i + 1} (${action}: ${JSON.stringify(arg).slice(0, 90)}): ${e.message.split('\n')[0]}`);
       }
     }
     if (!saved) throw new Error(`Báo cáo "${source.name}" chưa có bước "download" trong config.json`);

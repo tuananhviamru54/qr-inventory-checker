@@ -57,7 +57,6 @@ test('quy trình đầy đủ: đăng nhập → xuất → kiểm tra chéo →
     const period = resolvePeriod('thisMonth');
     assert.deepEqual(mock.state.exports, [{ from: period.fromDate, to: period.toDate }]);
     assert.equal(out.datasets.ton_kho.rows.length, 5);
-    assert.equal(mock.state.db, 'QN');
 
     const by = Object.fromEntries(out.results.map((r) => [r.id, r]));
     assert.deepEqual(by.amis_vs_kiem_ke.issues.map((i) => [i.kind, i.key]), [
@@ -91,6 +90,18 @@ test('sai mật khẩu → báo lỗi về Telegram kèm ảnh màn hình', asyn
     await assert.rejects(runPipeline(config, { log: () => {} }), LoginError);
     assert.deepEqual(mock.state.telegram.map((c) => c.method), ['sendMessage', 'sendPhoto']);
     assert.match(JSON.parse(mock.state.telegram[0].text).text, /Không lấy được báo cáo/);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('sai dữ liệu kế toán → dừng, không xuất báo cáo', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    const config = makeConfig(mock, root);
+    config.secrets.targetDb = 'KHO HÀ NỘI';
+    config.amis.targetDbWaitMs = 2000;
+    await assert.rejects(runPipeline(config, { log: () => {}, send: false }), /không phải "KHO HÀ NỘI"/);
+    assert.equal(mock.state.exports.length, 0);
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

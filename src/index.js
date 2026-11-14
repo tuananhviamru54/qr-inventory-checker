@@ -40,7 +40,7 @@ export async function runPipeline(config, { download = true, send = true, headed
     try {
       await session.open();
       await session.login(config.secrets);
-      await session.selectDatabase(config.secrets.targetDb);
+      await session.verifyDatabase(config.secrets.targetDb);
       for (const src of amisSources) {
         log(`→ Xuất báo cáo: ${src.name}`);
         try {
@@ -120,7 +120,7 @@ async function main() {
     try {
       console.log('Hãy hoàn tất đăng nhập trong cửa sổ trình duyệt (tối đa 5 phút)…');
       await session.login({ ...config.secrets, manualWaitMs: 5 * 60 * 1000 });
-      await session.selectDatabase(config.secrets.targetDb);
+      await session.verifyDatabase(config.secrets.targetDb);
       console.log('Đã lưu phiên đăng nhập. Từ giờ có thể chạy `npm start`.');
     } finally { await session.close(); }
   } else if (cmd === 'test-telegram') {

@@ -12,9 +12,9 @@
    - Cảnh báo tồn kho âm
 4. **Gửi kết quả về Telegram**: tin tóm tắt + file Excel chi tiết chênh lệch. Nếu đăng nhập/xuất báo cáo lỗi, bot gửi thông báo lỗi kèm ảnh chụp màn hình.
 
-> ⚠️ **Cần hiệu chỉnh 1 lần:** các bước bấm trên giao diện AMIS (`sources[].steps` trong `config.json`) mới là
-> phỏng đoán, chưa được chạy với tài khoản AMIS thật. Phần còn lại (đăng nhập, tải file, đọc Excel, đối chiếu, Telegram)
-> đã được kiểm thử tự động với máy chủ giả lập (`npm test`). Xem mục [Hiệu chỉnh bước xuất báo cáo](#hiệu-chỉnh-bước-xuất-báo-cáo).
+> Các bước trong `config.json` đã được chạy thật với AMIS Kế toán (`actapp.misa.vn`): đăng nhập, mở báo cáo
+> *Tổng hợp tồn kho*, đặt kỳ, chọn tất cả kho, xuất Excel (dạng dữ liệu) và tải file. Nếu MISA đổi giao diện, xem mục
+> [Hiệu chỉnh bước xuất báo cáo](#hiệu-chỉnh-bước-xuất-báo-cáo).
 
 ### Nguyên tắc cốt lõi: CHỈ ĐỌC
 
@@ -29,7 +29,12 @@ không có tuỳ chọn tắt (`src/readonly.js`):
    mọi yêu cầu không phải GET đều được ghi vào `output/nhat-ky-yeu-cau.log` để rà soát.
 
 Nếu một yêu cầu *đọc* hợp lệ bị chặn nhầm (báo cáo không tải được), thêm mẫu URL vào `amis.readOnly.allowPost`
-trong `config.json` sau khi đã chắc chắn nó chỉ đọc dữ liệu.
+trong `config.json` sau khi đã chắc chắn nó chỉ đọc dữ liệu. Hiện có đúng một ngoại lệ:
+`/api/export/v1/export/save_param` — đây là lệnh AMIS dùng để tạo file Excel xuất ra (lưu tham số của lần xuất, không
+đụng tới chứng từ hay sổ sách); thiếu nó thì không xuất được.
+
+Trang AMIS tự gửi vài yêu cầu nền khi mở (ví dụ lưu bố cục thanh bên `layout/slidebar/save`); các yêu cầu này bị chặn
+và được liệt kê cuối tin Telegram — đó là hoạt động bình thường của lớp chặn.
 
 > Lớp chặn mạng dựa trên từ khoá trong URL nên không thể bảo đảm tuyệt đối với API nội bộ của AMIS. **Bảo đảm chắc
 > chắn nhất là dùng một tài khoản AMIS riêng chỉ được phân quyền Xem/In/Xuất báo cáo** — khi đó chính AMIS từ chối
@@ -48,8 +53,8 @@ cp .env.example .env      # rồi điền tài khoản AMIS và Telegram
 - **Telegram:** chat với [@BotFather](https://t.me/BotFather) → `/newbot` để lấy `TELEGRAM_BOT_TOKEN`. Nhắn 1 tin cho bot
   (hoặc thêm bot vào nhóm), rồi mở `https://api.telegram.org/bot<TOKEN>/getUpdates` để lấy `chat.id`.
   Thử kết nối: `npm run test-telegram`.
-- **Chọn dữ liệu kế toán:** nếu tài khoản có nhiều dữ liệu, đặt `AMIS_TARGET_DB="TÊN DỮ LIỆU"` trong `.env`; bot sẽ bấm
-  chọn đúng tên đó ở màn hình chọn dữ liệu sau khi đăng nhập. Cũng chấp nhận bộ tên biến `MISA_WEB_USERNAME`,
+- **Dữ liệu kế toán:** đặt `AMIS_TARGET_DB="TÊN DỮ LIỆU"` trong `.env`; sau khi đăng nhập bot kiểm tra tên dữ liệu đang
+  mở trên thanh tiêu đề AMIS, nếu không đúng thì dừng (bot không tự chuyển dữ liệu — hãy chuyển bằng `npm run login`). Cũng chấp nhận bộ tên biến `MISA_WEB_USERNAME`,
   `MISA_WEB_PASSWORD`, `MISA_WEB_TARGET_DB`. Trong `steps` dùng được biến `{{targetDb}}`.
 - **AMIS:** nên tạo một tài khoản riêng chỉ có quyền *xem báo cáo*. Mật khẩu chỉ nằm trong `.env` (không đưa lên git).
 
@@ -75,12 +80,12 @@ Mỗi báo cáo AMIS là một mục trong `sources` của `config.json`, với 
 
 | Bước | Ví dụ |
 |---|---|
-| `goto` | `{ "goto": "https://actapp.misa.vn/app/report" }` |
-| `click` | `{ "click": "text=Tổng hợp tồn kho" }` |
+| `goto` | `{ "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/INInventoryBalanceSummary" }` |
+| `click` | `{ "click": "text=Tổng hợp tồn kho" }` hoặc có điều kiện: `{ "click": { "selector": "...", "ifVisible": "...", "unlessVisible": "..." } }` |
 | `fill` | `{ "fill": { "selector": "input[placeholder*='Từ ngày']", "value": "{{fromDate}}", "enter": true } }` |
 | `press` | `{ "press": "Enter" }` |
 | `wait` / `waitFor` | `{ "wait": 3000 }` / `{ "waitFor": "text=Tổng cộng" }` |
-| `download` | `{ "download": "text=Excel" }` — bấm vào phần tử làm trình duyệt tải file |
+| `download` | `{ "download": "text=\"Tải tệp\"" }` — bấm vào phần tử làm trình duyệt tải file (dạng đầy đủ: `{ "selector": "...", "confirm": "nút xác nhận nếu hiện" }`) |
 
 Biến dùng được: `{{fromDate}}`, `{{toDate}}`, `{{today}}` (dd/MM/yyyy), tính theo `period`:
 `today`, `yesterday`, `thisMonth`, `lastMonth`, `thisYear` hoặc `{ "from": "01/01/2026", "to": "31/01/2026" }`.
@@ -108,13 +113,14 @@ Nếu trang đăng nhập không được nhận diện đúng, khai báo lại 
   (Windows: dùng Task Scheduler chạy `npm start`.)
 - **GitHub Actions:** đã có sẵn `.github/workflows/doi-chieu.yml`. Khai báo các secret `AMIS_USERNAME`, `AMIS_PASSWORD`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (và `AMIS_TOTP_SECRET` nếu có), rồi tạo biến `AMIS_ENABLED=true` để bật.
-  Lưu ý: mỗi lần chạy trên GitHub là một "thiết bị mới" nên AMIS có thể đòi OTP/captcha; và file kiểm kê phải được
-  commit vào repo.
+  Lưu ý: mỗi lần chạy trên GitHub là một "thiết bị mới" nên MISA sẽ đòi mã OTP gửi về email — cách này chỉ dùng được
+  nếu tài khoản xác thực bằng Authenticator (`AMIS_TOTP_SECRET`); và file kiểm kê phải được commit vào repo.
 
 ### Xác thực 2 lớp
 
-- OTP qua SMS/email: chạy `npm run login` một lần trên máy có màn hình; hồ sơ trình duyệt được giữ lại nên các lần sau
-  thường không bị hỏi lại.
+- OTP qua SMS/email (MISA hỏi khi đăng nhập từ thiết bị mới): chạy `npm run login` một lần trên máy có màn hình, nhập
+  mã và tích "Không hỏi lại trên thiết bị này"; hồ sơ trình duyệt ở `.auth/profile` được giữ lại nên các lần sau không
+  bị hỏi lại.
 - Ứng dụng Authenticator: điền khoá bí mật vào `AMIS_TOTP_SECRET`, bot tự sinh mã.
 - Captcha: bot không tự giải; khi gặp sẽ báo lỗi về Telegram kèm ảnh màn hình.
 

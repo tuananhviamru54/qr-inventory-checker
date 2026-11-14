@@ -35,7 +35,8 @@ export function assertStepAllowed(action, arg) {
     throw new ReadOnlyViolation(`Chế độ chỉ đọc: không cho phép phím "${arg}" (chỉ: ${[...SAFE_KEYS].join(', ')})`);
   }
   if (action === 'click' || action === 'download') {
-    for (const m of String(arg).matchAll(/text=["']?([^"'>]+)|has-text\(\s*["'](.+?)["']\s*\)/g)) {
+    const selectors = typeof arg === 'string' ? [arg] : [arg.selector, arg.confirm].filter(Boolean);
+    for (const m of selectors.join(' , ').matchAll(/text=["']?([^"'>]+)|has-text\(\s*["'](.+?)["']\s*\)/g)) {
       const hit = forbiddenLabel(m[1] ?? m[2]);
       if (hit) throw new ReadOnlyViolation(`Chế độ chỉ đọc: không cho phép bấm "${(m[1] ?? m[2]).trim()}" (thao tác ghi dữ liệu)`);
     }
