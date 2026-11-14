@@ -1,0 +1,86 @@
+{
+  "title": "Báo cáo đối chiếu tồn kho MISA AMIS",
+  "period": "thisMonth",
+  "maxLinesPerCheck": 10,
+  "attachSourceFiles": false,
+
+  "amis": {
+    "baseUrl": "https://amisapp.misa.vn",
+    "timeoutMs": 30000,
+    "selectors": {}
+  },
+
+  "sources": [
+    {
+      "id": "ton_kho",
+      "name": "Tồn kho AMIS",
+      "type": "amis",
+      "steps": [
+        { "goto": "https://actapp.misa.vn/app/report" },
+        { "click": "text=Tổng hợp tồn kho" },
+        { "fill": { "selector": "input[placeholder*='Từ ngày']", "value": "{{fromDate}}" } },
+        { "fill": { "selector": "input[placeholder*='Đến ngày']", "value": "{{toDate}}" } },
+        { "click": "button:has-text('Đồng ý')" },
+        { "wait": 3000 },
+        { "click": "button:has-text('Xuất khẩu')" },
+        { "download": "text=Excel" }
+      ],
+      "parse": {
+        "key": ["ma_hang"],
+        "fields": {
+          "ma_hang": { "headers": ["Mã hàng", "Mã VTHH", "Mã vật tư", "Mã hàng hóa"], "type": "text" },
+          "ten_hang": { "headers": ["Tên hàng", "Tên VTHH", "Tên vật tư", "Tên hàng hóa"], "type": "text" },
+          "sl_dau_ky": { "headers": ["Đầu kỳ Số lượng", "Tồn đầu kỳ Số lượng", "SL đầu kỳ"] },
+          "sl_nhap": { "headers": ["Nhập kho Số lượng", "Nhập trong kỳ Số lượng", "Nhập Số lượng", "SL nhập"] },
+          "sl_xuat": { "headers": ["Xuất kho Số lượng", "Xuất trong kỳ Số lượng", "Xuất Số lượng", "SL xuất"] },
+          "sl_cuoi_ky": { "headers": ["Cuối kỳ Số lượng", "Tồn cuối kỳ Số lượng", "Số lượng tồn", "SL tồn", "SL cuối kỳ"] }
+        }
+      }
+    },
+    {
+      "id": "kiem_ke",
+      "name": "Kiểm kê thực tế",
+      "type": "file",
+      "path": "data/kiem_ke.xlsx",
+      "parse": {
+        "key": ["ma_hang"],
+        "fields": {
+          "ma_hang": { "headers": ["Mã hàng", "Mã", "Mã SP", "Mã sản phẩm", "Mã VTHH"], "type": "text" },
+          "ten_hang": { "headers": ["Tên hàng", "Tên", "Tên sản phẩm"], "type": "text" },
+          "sl_thuc_te": { "headers": ["Số lượng thực tế", "SL thực tế", "Số lượng kiểm kê", "Số lượng", "SL"] }
+        }
+      }
+    }
+  ],
+
+  "checks": [
+    {
+      "id": "amis_vs_kiem_ke",
+      "name": "Tồn kho AMIS ↔ kiểm kê thực tế",
+      "type": "compare",
+      "left": "ton_kho",
+      "right": "kiem_ke",
+      "key": ["ma_hang"],
+      "columns": [{ "left": "sl_cuoi_ky", "right": "sl_thuc_te", "label": "SL", "tolerance": 0 }]
+    },
+    {
+      "id": "can_doi_nxt",
+      "name": "Cân đối đầu kỳ + nhập − xuất = cuối kỳ",
+      "type": "balance",
+      "source": "ton_kho",
+      "key": ["ma_hang"],
+      "plus": ["sl_dau_ky", "sl_nhap"],
+      "minus": ["sl_xuat"],
+      "equals": "sl_cuoi_ky",
+      "tolerance": 0.0001
+    },
+    {
+      "id": "ton_am",
+      "name": "Tồn kho âm",
+      "type": "negative",
+      "source": "ton_kho",
+      "key": ["ma_hang"],
+      "columns": ["sl_cuoi_ky"]
+    }
+  ]
+}
