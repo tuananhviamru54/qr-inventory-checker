@@ -75,7 +75,8 @@ export async function startMock() {
         <div id="bar" hidden><button onclick="document.getElementById('menu').hidden=false">Xuất khẩu</button>
         <div id="menu" hidden><a href="#" onclick="location.href='/export?from='+encodeURIComponent(f.value)+'&to='+encodeURIComponent(t.value);return false">Excel</a></div></div>`);
     }
-    return html(res, `<div id="app-home">Xin chào</div><a href="/report">Tổng hợp tồn kho</a>`);
+    if (url.pathname === '/home') { state.db = url.searchParams.get('db'); return html(res, `<div id="app-home">Xin chào</div><a href="/report">Tổng hợp tồn kho</a>`); }
+    return html(res, `<h2>Chọn dữ liệu kế toán</h2><a href="/home?db=HN">KHO HÀ NỘI</a> <a href="/home?db=QN">KHO QUẢNG NINH</a>`);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   return { url: `http://127.0.0.1:${server.address().port}`, state, close: () => new Promise((ok) => server.close(ok)) };

@@ -4,8 +4,10 @@ import { escapeHtml } from './util.js';
 
 const ICON = { ok: '✅', fail: '❌', skipped: '⚠️' };
 
-export function buildMessage({ title, period, datasets, results, blocked = [], maxLines = 10 }) {
-  const lines = [`📊 <b>${escapeHtml(title)}</b>`, `🗓 Kỳ: ${period.fromDate} – ${period.toDate}`, ''];
+export function buildMessage({ title, period, datasets, results, blocked = [], targetDb, maxLines = 10 }) {
+  const lines = [`📊 <b>${escapeHtml(title)}</b>`, `🗓 Kỳ: ${period.fromDate} – ${period.toDate}`];
+  if (targetDb) lines.push(`🗄 Dữ liệu: ${escapeHtml(targetDb)}`);
+  lines.push('');
   lines.push('<b>Nguồn dữ liệu</b>');
   for (const ds of Object.values(datasets)) {
     if (ds.error) lines.push(`• ${escapeHtml(ds.name)}: ⚠️ ${escapeHtml(ds.error)}`);

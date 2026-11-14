@@ -48,6 +48,9 @@ cp .env.example .env      # rồi điền tài khoản AMIS và Telegram
 - **Telegram:** chat với [@BotFather](https://t.me/BotFather) → `/newbot` để lấy `TELEGRAM_BOT_TOKEN`. Nhắn 1 tin cho bot
   (hoặc thêm bot vào nhóm), rồi mở `https://api.telegram.org/bot<TOKEN>/getUpdates` để lấy `chat.id`.
   Thử kết nối: `npm run test-telegram`.
+- **Chọn dữ liệu kế toán:** nếu tài khoản có nhiều dữ liệu, đặt `AMIS_TARGET_DB="TÊN DỮ LIỆU"` trong `.env`; bot sẽ bấm
+  chọn đúng tên đó ở màn hình chọn dữ liệu sau khi đăng nhập. Cũng chấp nhận bộ tên biến `MISA_WEB_USERNAME`,
+  `MISA_WEB_PASSWORD`, `MISA_WEB_TARGET_DB`. Trong `steps` dùng được biến `{{targetDb}}`.
 - **AMIS:** nên tạo một tài khoản riêng chỉ có quyền *xem báo cáo*. Mật khẩu chỉ nằm trong `.env` (không đưa lên git).
 
 ### Sử dụng

@@ -23,8 +23,10 @@ export function withDefaults(config, root) {
       profile: path.resolve(root, dirs.profile ?? '.auth/profile'),
     },
     secrets: {
-      username: process.env.AMIS_USERNAME,
-      password: process.env.AMIS_PASSWORD,
+      // chấp nhận cả tên biến MISA_WEB_*
+      username: process.env.AMIS_USERNAME || process.env.MISA_WEB_USERNAME,
+      password: process.env.AMIS_PASSWORD || process.env.MISA_WEB_PASSWORD,
+      targetDb: process.env.AMIS_TARGET_DB || process.env.MISA_WEB_TARGET_DB || config.amis?.targetDb,
       totpSecret: process.env.AMIS_TOTP_SECRET,
       telegramToken: process.env.TELEGRAM_BOT_TOKEN,
       telegramChatId: process.env.TELEGRAM_CHAT_ID,

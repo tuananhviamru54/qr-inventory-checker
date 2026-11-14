@@ -113,6 +113,21 @@ export class AmisSession {
       : 'Hết thời gian chờ đăng nhập AMIS.');
   }
 
+  /**
+   * Nếu sau khi đăng nhập AMIS hiện màn hình chọn dữ liệu kế toán thì chọn đúng dữ liệu `targetDb`.
+   * Không thấy tên dữ liệu trên màn hình thì bỏ qua (đã vào thẳng dữ liệu, hoặc cần chọn trong `steps`).
+   */
+  async selectDatabase(targetDb) {
+    if (!targetDb) return;
+    const loc = this.page.getByText(targetDb, { exact: true }).first();
+    const shown = await loc.waitFor({ state: 'visible', timeout: this.amis.targetDbWaitMs ?? 6000 }).then(() => true, () => false);
+    if (!shown) { this.log(`(Không thấy màn hình chọn dữ liệu "${targetDb}" — bỏ qua)`); return; }
+    await assertElementAllowed(loc);
+    await loc.click();
+    await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+    this.log(`✓ Đã chọn dữ liệu: ${targetDb}`);
+  }
+
   /** Chạy danh sách bước của 1 báo cáo, trả về đường dẫn file đã tải. */
   async exportReport(source, vars) {
     const { page } = this;

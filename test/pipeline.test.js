@@ -19,7 +19,6 @@ function makeConfig(mock, root, password = 'secret') {
   cfg.amis.loginTimeoutMs = 8000;
   cfg.amis.loginDetectMs = 2000;
   cfg.sources[0].steps = [
-    { goto: `${mock.url}/` },
     { click: 'text=Tổng hợp tồn kho' },
     { fill: { selector: "input[placeholder*='Từ ngày']", value: '{{fromDate}}' } },
     { fill: { selector: "input[placeholder*='Đến ngày']", value: '{{toDate}}' } },
@@ -27,7 +26,7 @@ function makeConfig(mock, root, password = 'secret') {
     { click: "button:has-text('Xuất khẩu')" },
     { download: 'text=Excel' },
   ];
-  cfg.secrets = { username: 'demo', password, telegramToken: 'T0KEN', telegramChatId: '42', telegramApiBase: mock.url };
+  cfg.secrets = { username: 'demo', password, targetDb: 'KHO QUẢNG NINH', telegramToken: 'T0KEN', telegramChatId: '42', telegramApiBase: mock.url };
   return withDefaults(cfg, root);
 }
 
@@ -58,6 +57,7 @@ test('quy trình đầy đủ: đăng nhập → xuất → kiểm tra chéo →
     const period = resolvePeriod('thisMonth');
     assert.deepEqual(mock.state.exports, [{ from: period.fromDate, to: period.toDate }]);
     assert.equal(out.datasets.ton_kho.rows.length, 5);
+    assert.equal(mock.state.db, 'QN');
 
     const by = Object.fromEntries(out.results.map((r) => [r.id, r]));
     assert.deepEqual(by.amis_vs_kiem_ke.issues.map((i) => [i.kind, i.key]), [
@@ -113,7 +113,7 @@ test('chỉ đọc: từ chối bấm nút ghi dữ liệu, chặn yêu cầu gh
     // 1. Bước cấu hình cố bấm "Cất" (kể cả bằng selector không chứa chữ) → bị từ chối, không có gì gửi lên máy chủ
     for (const selector of ['text=Cất', '#cat']) {
       const config = makeConfig(mock, root);
-      config.sources[0].steps.splice(5, 0, { click: selector });
+      config.sources[0].steps.splice(4, 0, { click: selector });
       const out = await runPipeline(config, { log: () => {}, send: false });
       assert.match(out.datasets.ton_kho.error, /Chế độ chỉ đọc/);
     }
@@ -122,7 +122,7 @@ test('chỉ đọc: từ chối bấm nút ghi dữ liệu, chặn yêu cầu gh
 
     // 2. Nút trông vô hại nhưng trang tự gửi yêu cầu ghi → bị chặn ở tầng mạng, yêu cầu đọc vẫn qua
     const config = makeConfig(mock, root);
-    config.sources[0].steps.splice(5, 0, { click: "button:has-text('Nạp dữ liệu')" }, { wait: 500 });
+    config.sources[0].steps.splice(4, 0, { click: "button:has-text('Nạp dữ liệu')" }, { wait: 500 });
     const out = await runPipeline(config, { log: () => {} });
     assert.deepEqual(mock.state.writes, []);
     assert.deepEqual(mock.state.reads, ['POST /api/report/GetData']);
