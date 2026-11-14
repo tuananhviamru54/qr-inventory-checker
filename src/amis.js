@@ -71,6 +71,18 @@ export class AmisSession {
     return this.page.locator(selector).first().isVisible().catch(() => false);
   }
 
+  /** MISA chỉ cho 1 phiên/tài khoản: nếu có người đang dùng, AMIS hỏi có đăng nhập đè (đẩy người đó ra) hay không. */
+  async concurrentSessionNotice() {
+    const notice = this.page.getByText('Đang có người dùng khác sử dụng tài khoản này').first();
+    if (!(await notice.isVisible().catch(() => false))) return null;
+    const detail = await this.page.getByText('Tài khoản này đang được sử dụng trên').first().innerText().catch(() => '');
+    return detail.replace(/\s+/g, ' ').trim() || 'Tài khoản đang được dùng ở nơi khác';
+  }
+
+  throwConcurrent(detail) {
+    throw new LoginError(`Tài khoản đang được dùng ở nơi khác (${detail}). Bot KHÔNG tự đăng nhập đè vì sẽ đẩy người đó ra khỏi AMIS. Hãy dùng một tài khoản AMIS riêng cho bot, hoặc chạy lại khi tài khoản này không có ai dùng.`);
+  }
+
   /**
    * Mở AMIS; nếu thấy form đăng nhập thì điền tài khoản. Coi là đã đăng nhập khi không còn
    * ô mật khẩu / ô OTP (và thấy selectors.loggedIn nếu có cấu hình).
@@ -84,6 +96,8 @@ export class AmisSession {
     let submitted = false, otpSent = 0, clearSince = 0;
 
     while (Date.now() < deadline) {
+      const other = await this.concurrentSessionNotice();
+      if (other && !manualWaitMs) this.throwConcurrent(other);
       const hasPwd = await this.visible(sel.password);
       const hasOtp = !hasPwd && await this.visible(sel.otp);
       if (hasPwd && !submitted && username && password) {
@@ -128,6 +142,8 @@ export class AmisSession {
     const shown = await this.page.getByText(targetDb, { exact: true }).first()
       .waitFor({ state: 'visible', timeout: this.amis.targetDbWaitMs ?? 30000 }).then(() => true, () => false);
     if (!shown) {
+      const other = await this.concurrentSessionNotice();
+      if (other) this.throwConcurrent(other);
       throw new Error(`Dữ liệu kế toán đang mở không phải "${targetDb}". Chạy \`npm run login\`, chuyển sang đúng dữ liệu trong trình duyệt rồi chạy lại.`);
     }
     this.log(`✓ Đúng dữ liệu: ${targetDb}`);

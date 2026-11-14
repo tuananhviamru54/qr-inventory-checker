@@ -24,7 +24,8 @@ ket_luan = "dat" nếu mọi điểm đều khớp (sai_sot để trống); "kho
 
 /** @returns {{ status: 'dat'|'khong_dat'|'tat'|'loi', sai_sot?: string[], note?: string }} */
 export async function reviewDraft(ai, { draft, facts, question }) {
-  if (!aiEnabled(ai)) return { status: 'tat', note: 'thiếu ANTHROPIC_API_KEY' };
+  // ai.enabled === false là lựa chọn chủ động → không nhắc gì trong tin; thiếu khoá thì báo để người dùng biết
+  if (!aiEnabled(ai)) return { status: 'tat', note: ai?.enabled === false ? '' : 'thiếu ANTHROPIC_API_KEY' };
   const user = [
     question ? `CÂU HỎI CỦA GIÁM ĐỐC:\n${question}\n` : '',
     `SỐ LIỆU GỐC (JSON):\n${JSON.stringify(facts)}\n`,
@@ -42,7 +43,7 @@ export async function reviewDraft(ai, { draft, facts, question }) {
 
 /** Đoạn HTML ghép vào cuối tin: đạt chỉ có 1 dòng đóng dấu; chỉ khi sai mới nêu chi tiết. */
 export function reviewSection(review) {
-  if (review.status === 'tat') return `<i>Chưa kiểm tra độ chính xác bằng AI (${escapeHtml(review.note)}).</i>`;
+  if (review.status === 'tat') return review.note ? `<i>Chưa kiểm tra độ chính xác bằng AI (${escapeHtml(review.note)}).</i>` : '';
   if (review.status === 'loi') return `⚠️ <b>Chưa kiểm tra được độ chính xác</b> — ${escapeHtml(review.note)}`;
   if (review.status === 'dat') return '✔ Đã kiểm tra chéo độ chính xác với số liệu gốc';
   const lines = ['⛔ <b>Kế toán trưởng: KHÔNG ĐẠT</b> — nội dung trên có điểm chưa chính xác:'];

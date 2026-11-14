@@ -6,6 +6,7 @@ import { aiEnabled, describeAiError } from './ai.js';
 import { draftAnswer } from './agents/answer.js';
 import { finalizeAnswer } from './agents/expert.js';
 import { reviewDraft, reviewSection } from './agents/reviewer.js';
+import { answerByRules, RULE_HELP } from './agents/lookup.js';
 import { supervisionSection } from './report.js';
 import { escapeHtml } from './util.js';
 import path from 'node:path';
@@ -14,7 +15,7 @@ const HELP = `🤖 <b>Bot đối chiếu MISA AMIS</b> (chỉ đọc)
 /baocao — xuất tồn kho từ AMIS, kiểm tra chéo và gửi báo cáo
 /moi — như /baocao nhưng luôn lấy dữ liệu mới từ AMIS
 /trogiup — xem hướng dẫn này
-Hoặc gõ câu hỏi bất kỳ về tồn kho, ví dụ: <i>"Mã A12_2 còn tồn bao nhiêu?"</i>, <i>"Những mã nào đang âm kho?"</i>
+Hoặc gõ câu hỏi về tồn kho, ví dụ: <i>"Mã A12_2 còn tồn bao nhiêu?"</i>, <i>"Những mã nào đang âm kho?"</i>, <i>"Tổng tồn kho là bao nhiêu?"</i>
 
 Mọi câu trả lời đều qua chuyên gia (AI) đối chiếu và chốt, rồi kế toán trưởng (AI) kiểm tra độ chính xác trước khi gửi.`;
 
@@ -34,11 +35,30 @@ async function handleReport(config, tg, { fresh, headed }) {
   }
 }
 
-export async function handleQuestion(config, tg, question, { headed } = {}) {
-  if (!aiEnabled(config.ai)) {
-    await tg.sendMessage('⚠️ Chưa bật trợ lý AI nên chưa trả lời được câu hỏi tự do. Thêm ANTHROPIC_API_KEY vào file .env rồi khởi động lại bot. Lệnh /baocao vẫn dùng được.');
-    return null;
+/** Chế độ không dùng AI: tra cứu trực tiếp số liệu, không có agent nào can thiệp vào con số. */
+async function handleRuleQuestion(config, tg, question, { headed } = {}) {
+  const reuse = dataAgeMinutes(config) <= config.bot.maxDataAgeMinutes;
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'send'];
+  const progress = new Progress(tg, { title: 'Đang tra cứu số liệu…', stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  await progress.start();
+  try {
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s) });
+    await progress.stage('send');
+    const answer = answerByRules(question, data.datasets);
+    const message = answer
+      ? [`💬 <b>${escapeHtml(question)}</b>`, answer, `<i>Tra cứu trực tiếp từ số liệu AMIS kỳ ${data.period.fromDate} – ${data.period.toDate}${reuse ? ' (dùng lại lần xuất gần nhất)' : ''}, không qua AI.</i>`, supervisionSection(data.supervision, data.blocked)].filter(Boolean).join('\n\n')
+      : `Chưa hiểu câu hỏi này.\n\n${RULE_HELP}`;
+    await tg.sendMessage(message);
+    await progress.finish(true);
+    return { message };
+  } catch (e) {
+    await progress.finish(false);
+    throw e;
   }
+}
+
+export async function handleQuestion(config, tg, question, { headed } = {}) {
+  if (!aiEnabled(config.ai)) return handleRuleQuestion(config, tg, question, { headed });
   const reuse = dataAgeMinutes(config) <= config.bot.maxDataAgeMinutes;
   const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'answer', 'expert', 'review', 'send'];
   const progress = new Progress(tg, { title: 'Đang xử lý câu hỏi của bạn…', stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });

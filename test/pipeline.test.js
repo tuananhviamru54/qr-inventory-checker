@@ -112,6 +112,21 @@ test('sai dữ liệu kế toán → dừng, không xuất báo cáo', async () 
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('tài khoản đang có người khác dùng: dừng, báo rõ, không bấm "Tiếp tục đăng nhập"', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    mock.state.concurrent = true;
+    const config = makeConfig(mock, root);
+    await assert.rejects(runPipeline(config, { log: () => {} }), /đang được dùng ở nơi khác \(Tài khoản này đang được sử dụng trên Window x64 \(1\.2\.3\.4\)/);
+    assert.deepEqual(mock.state.writes, []);                      // không có yêu cầu đăng nhập đè nào được gửi
+    assert.equal(mock.state.exports.length, 0);
+    assert.deepEqual(mock.state.telegram.map((c) => c.method), ['sendMessage', 'sendPhoto']);
+    assert.match(JSON.parse(mock.state.telegram[0].text).text, /KHÔNG tự đăng nhập đè/);
+    assert.equal(forbiddenLabel('Tiếp tục đăng nhập'), 'tiep tuc dang nhap');
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('thiếu file kiểm kê → bỏ qua phép so sánh, vẫn chạy các phép còn lại (không tải lại)', async () => {
   const mock = await startMock();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
@@ -204,6 +219,38 @@ test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán t
     // Hỏi lần 2 trong vòng 30 phút: dùng lại dữ liệu, không vào AMIS nữa
     await handleUpdate(config, tg, 'Mã SP002 còn tồn bao nhiêu?');
     assert.equal(mock.state.exports.length, 1);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('không dùng AI: tra cứu theo mã, tồn âm, tổng tồn; câu lạ → hướng dẫn; báo cáo không nhắc AI', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    const config = makeConfig(mock, root); // ai.enabled = false
+    const tg = new Telegram({ token: 'T0KEN', chatId: '42', apiBase: mock.url });
+    const lastText = () => JSON.parse(mock.state.telegram.filter((c) => c.method === 'sendMessage').at(-1).text).text;
+
+    await handleUpdate(config, tg, 'Mã SP002 còn bao nhiêu?');
+    assert.match(lastText(), /<code>SP002<\/code> Vở kẻ ngang: đầu kỳ 200 · nhập 0 · xuất 20 · cuối kỳ 180/);
+    assert.match(lastText(), /không qua AI/);
+
+    await handleUpdate(config, tg, 'Những mã nào đang âm kho?');
+    assert.match(lastText(), /Có <b>1<\/b> dòng tồn cuối kỳ âm/);
+    assert.match(lastText(), /SP003/);
+
+    await handleUpdate(config, tg, 'Tổng tồn kho là bao nhiêu?');
+    assert.match(lastText(), /Tổng số lượng tồn cuối kỳ: <b>1\.007,5<\/b>|Tổng số lượng tồn cuối kỳ: <b>1\.352,5<\/b>|Tổng số lượng tồn cuối kỳ: <b>[\d.,]+<\/b>/);
+
+    await handleUpdate(config, tg, 'Thời tiết hôm nay thế nào?');
+    assert.match(lastText(), /Chưa hiểu câu hỏi này/);
+    assert.equal(mock.state.ai.length, 0); // không có lời gọi AI nào (kể cả giám sát)
+    assert.equal(mock.state.exports.length, 1); // 4 câu hỏi nhưng chỉ vào AMIS 1 lần
+
+    await handleUpdate(config, tg, '/moi'); // luôn lấy dữ liệu mới → có phiên AMIS để giám sát
+    assert.doesNotMatch(lastText(), /AI\)|ANTHROPIC|chưa kiểm tra độ chính xác/i);
+    assert.match(lastText(), /Giám sát độc lập/);
+    assert.match(lastText(), /Phân loại bằng AI: tắt \(chỉ dùng luật cứng\)/);
+    assert.equal(mock.state.exports.length, 2);
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

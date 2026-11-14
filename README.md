@@ -76,6 +76,12 @@ nút mang nghĩa ghi) luôn áp dụng và AI không gỡ được; khi có kho�
 
 **4. Agent trợ lý** (`src/agents/answer.js`) — soạn câu trả lời cho câu hỏi tự do, chỉ dựa trên bảng tồn kho vừa xuất.
 
+**Chế độ không dùng AI** (mặc định trong `config.json`: `"ai": { "enabled": false }`): `/baocao` vẫn chạy đủ — đăng nhập,
+xuất, kiểm tra chéo, gửi Telegram; giám sát vẫn chặn ghi bằng luật cứng; tin báo cáo không nhắc gì tới AI. Câu hỏi được
+trả lời bằng tra cứu trực tiếp số liệu (theo mã hàng, hàng tồn âm, tổng tồn), nên con số đúng theo cách tính, không
+qua AI; câu hỏi ngoài các dạng này bot trả lời bằng hướng dẫn. Muốn bật AI: đặt `ANTHROPIC_API_KEY` trong `.env` và
+đổi `ai.enabled` thành `true` (hoặc xoá dòng đó).
+
 Các agent AI cần `ANTHROPIC_API_KEY` trong `.env` (model mặc định `claude-opus-5-5`, đổi ở `ai.model` trong
 `config.json`). Không có khoá: `/baocao` vẫn chạy, giám sát dùng luật cứng, tin báo cáo ghi rõ kế toán trưởng AI chưa bật,
 và bot không trả lời câu hỏi tự do. Khi bật AI, bảng tồn kho và phần đầu nội dung các yêu cầu gửi lên AMIS được gửi tới
@@ -157,6 +163,13 @@ Nếu trang đăng nhập không được nhận diện đúng, khai báo lại 
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (và `AMIS_TOTP_SECRET` nếu có), rồi tạo biến `AMIS_ENABLED=true` để bật.
   Lưu ý: mỗi lần chạy trên GitHub là một "thiết bị mới" nên MISA sẽ đòi mã OTP gửi về email — cách này chỉ dùng được
   nếu tài khoản xác thực bằng Authenticator (`AMIS_TOTP_SECRET`); và file kiểm kê phải được commit vào repo.
+
+### Một tài khoản, một phiên (quan trọng)
+
+MISA chỉ cho **một phiên đăng nhập cho mỗi tài khoản**: đăng nhập ở nơi mới sẽ đẩy phiên cũ ra. Vì vậy **không dùng chung
+tài khoản của người thật cho bot** — mỗi lần bot chạy có thể làm người đó bị văng khỏi AMIS (mất dữ liệu đang nhập dở),
+và ngược lại. Nếu AMIS hỏi "Đang có người dùng khác sử dụng tài khoản này", bot dừng lại, báo về Telegram kèm ảnh màn
+hình và **không bấm "Tiếp tục đăng nhập"**. Hãy tạo một tài khoản AMIS riêng cho bot, chỉ có quyền xem/xuất báo cáo.
 
 ### Xác thực 2 lớp
 

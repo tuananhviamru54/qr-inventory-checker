@@ -11,6 +11,7 @@ const FORBIDDEN_LABELS = [
   'cat', 'luu', 'ghi so', 'bo ghi', 'xoa', 'sua', 'them', 'nhan ban', 'nhap khau', 'duyet', 'tu choi',
   'ket chuyen', 'khoa so', 'bo khoa so', 'tinh gia', 'tinh lai', 'bao tri', 'cap nhat', 'dong bo',
   'phat hanh', 'gui', 'thanh toan', 'thu tien', 'chi tien', 'lap chung tu', 'lap phieu', 'ghi tang', 'ghi giam',
+  'tiep tuc dang nhap', 'dang nhap lai', // đẩy người đang dùng tài khoản ra khỏi AMIS
   'save', 'delete', 'edit', 'add', 'update', 'post', 'import',
 ];
 

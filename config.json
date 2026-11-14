@@ -255,5 +255,8 @@
         "sl_cuoi_ky"
       ]
     }
-  ]
+  ],
+  "ai": {
+    "enabled": false
+  }
 }
