@@ -549,13 +549,23 @@ export async function runBot(config, opts = {}) {
   let busy = false;
   tg.pollerActive = true; // vòng lặp này nhận cả lần bấm nút (ví dụ quyết định đăng nhập tiếp)
 
-  const dispatch = (work) => {
-    if (busy) return tg.sendMessage('⏳ Đang xử lý yêu cầu trước, vui lòng chờ xong rồi gửi lại.').catch(() => {});
+  // Hàng đợi: chạy lần lượt (chung một phiên AMIS nên không chạy song song), tối đa MAX_QUEUE yêu cầu đang chờ.
+  const MAX_QUEUE = config.bot.maxQueue ?? 5;
+  const queue = [];
+  const pump = () => {
+    if (busy) return;
+    const work = queue.shift();
+    if (!work) return;
     busy = true;
-    // không await: vòng lặp vẫn nhận tin để báo "đang bận" thay vì im lặng
     work()
       .catch((e) => tg.sendMessage(`🚨 Không xử lý được yêu cầu: ${escapeHtml(describeAiError(e))}`).catch(() => {}))
-      .finally(() => { busy = false; });
+      .finally(() => { busy = false; pump(); });
+  };
+  const dispatch = (work) => {
+    if (queue.length >= MAX_QUEUE) return tg.sendMessage(`⏳ Hàng đợi đã đầy (${MAX_QUEUE} yêu cầu đang chờ). Vui lòng chờ bớt rồi gửi lại.`).catch(() => {});
+    if (busy) tg.sendMessage(`🕒 Đã xếp hàng — còn ${queue.length + 1} yêu cầu đang chờ sau yêu cầu hiện tại, bot sẽ làm lần lượt và gửi kết quả theo thứ tự.`).catch(() => {});
+    queue.push(work);
+    pump();
   };
 
   for (;;) {

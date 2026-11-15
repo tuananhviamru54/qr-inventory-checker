@@ -70,7 +70,7 @@ thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch
 - **Gõ tắt:** `/doanhso hôm qua`, `/doanhso 01/11/2026 - 10/11/2026`, hoặc gõ tự nhiên "doanh thu tuần này thế nào".
 - Dưới mỗi báo cáo có nút **🔄 Làm mới số liệu này** (luôn lấy lại từ AMIS) và **📅 Chọn kỳ khác**. Cùng một kỳ vừa lấy
   trong 30 phút thì được dùng lại để trả lời nhanh; tin ghi rõ giờ lấy số liệu.
-- Bot xử lý từng yêu cầu một; đang bận thì báo "⏳ Đang xử lý yêu cầu trước".
+- Bot xử lý từng yêu cầu một nhưng có hàng đợi: bấm nhiều báo cáo liền nhau (tối đa 5 yêu cầu chờ, chỉnh bằng `bot.maxQueue`) thì bot báo "🕒 Đã xếp hàng" rồi làm lần lượt, gửi kết quả theo thứ tự.
 
 ### Ba agent và bot hỏi–đáp
 
