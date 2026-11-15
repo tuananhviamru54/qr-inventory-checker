@@ -93,3 +93,35 @@ test('chi phí: tổng, từng tài khoản, so với kỳ trước, lợi nhu�
   assert.ok(dashboardKeyboard(true).inline_keyboard.flat().some((b) => b.callback_data === 'y:menu'));
   assert.ok(!dashboardKeyboard(false).inline_keyboard.flat().some((b) => b.callback_data === 'y:menu'));
 });
+
+test('chứng từ chi phí: đọc sổ chi tiết, không cộng trùng TK chi tiết, bỏ bút toán kết chuyển 911, gộp theo số chứng từ', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { readLedger, expenseVouchers, buildVoucherMessage } = await import('../src/ledger.js');
+  const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('S');
+  ws.addRow(['SỔ CHI TIẾT CÁC TÀI KHOẢN']);
+  ws.addRow(['Ngày hạch toán', 'Ngày chứng từ', 'Số chứng từ', 'Diễn giải', 'TK đối ứng', 'Phát sinh Nợ', 'Phát sinh Có', 'Dư Nợ', 'Dư Có', 'Mã đối tượng', 'Tên đối tượng']);
+  ws.addRow(['Tài khoản: 642', null, null, null, null, 300, 0]);
+  ws.addRow(['', '', '', 'Số dư đầu kỳ', '', '', '', 0, 0]);
+  ws.addRow([new Date(Date.UTC(2026, 9, 2)), null, 'PC1', 'Mua nước', '111', 100, 0, 0, 0, '', 'Hạnh']);
+  ws.addRow([new Date(Date.UTC(2026, 9, 5)), null, 'PC2', 'Sửa xe', '111', 150, 0]);
+  ws.addRow([new Date(Date.UTC(2026, 9, 5)), null, 'PC2', 'Sửa xe (phụ tùng)', '111', 50, 0]);
+  ws.addRow([new Date(Date.UTC(2026, 9, 31)), null, 'KC1', 'Kết chuyển', '911', 0, 300]);
+  ws.addRow(['', '', '', 'Cộng', '', 300, 300]);
+  ws.addRow(['Tài khoản: 6421', null, null, null, null, 100, 0]);
+  ws.addRow([new Date(Date.UTC(2026, 9, 2)), null, 'PC1', 'Mua nước', '111', 100, 0]);
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'led-')), 's.xlsx');
+  await wb.xlsx.writeFile(file);
+  const v = expenseVouchers(await readLedger(file), '642');
+  assert.deepEqual(v.map((x) => [x.no, x.amount]), [['PC2', 200], ['PC1', 100]]);
+  const msg = buildVoucherMessage({ account: '642', name: 'Chi phí quản lý', label: 'Tháng 10', period: { fromDate: '01/10/2026', toDate: '31/10/2026' }, vouchers: v, limit: 1 });
+  assert.match(msg, /Tổng: <b>300 đ<\/b> · 2 chứng từ · hiện 1 chứng từ lớn nhất/);
+  assert.match(msg, /1\. 05\/10 <code>PC2<\/code> — <b>200 đ<\/b>/);
+  assert.match(msg, /… và 1 chứng từ khác: 100 đ/);
+  fs.rmSync(path.dirname(file), { recursive: true, force: true });
+
+  const { handleCallbackData } = await import('../src/bot.js');
+  const sent = [];
+  await handleCallbackData({ secrets: { telegramChatId: '42' }, bot: {} }, { chatId: '-100', sendMessage: async (t) => sent.push(t) }, 'y:v:642:01102026:31102026', { state: {} });
+  assert.match(sent.at(-1), /chỉ dành cho chủ bot/);
+});

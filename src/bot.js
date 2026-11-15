@@ -14,7 +14,8 @@ import { buildDebtMessage } from './debt.js';
 import { buildCashMessage } from './cash.js';
 import { buildDailyMessage } from './daily.js';
 import { buildIncomeMessage } from './income.js';
-import { buildCostMessage, summarizeCost, previousRange } from './cost.js';
+import { buildCostMessage, summarizeCost, previousRange, COST_ACCOUNTS } from './cost.js';
+import { readLedger, expenseVouchers, buildVoucherMessage, writeVoucherWorkbook } from './ledger.js';
 import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
@@ -522,11 +523,52 @@ export async function handleCost(config, tg, range, { fresh = false, headed, own
     const pd = b?.datasets.can_doi_tk;
     const prev = pd && !pd.error && !pd.missing ? summarizeCost(pd) : null;
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
-    const message = [buildCostMessage({ label: range.label, period: range, prevPeriod: prevR, targetDb: config.secrets.targetDb, cur: summarizeCost(ds), prev, updatedAt }), supervisionSection(a.supervision, a.blocked)].filter(Boolean).join('\n\n');
-    await tg.sendMessage(message, { reply_markup: { inline_keyboard: [[
+    const cur = summarizeCost(ds);
+    const message = [buildCostMessage({ label: range.label, period: range, prevPeriod: prevR, targetDb: config.secrets.targetDb, cur, prev, updatedAt }), supervisionSection(a.supervision, a.blocked)].filter(Boolean).join('\n\n');
+    const dd = (x) => x.replace(/\//g, '');
+    const voucherRows = COST_ACCOUNTS.filter(([k]) => Math.round(cur.items[k])).map(([k, icon, name]) => [{ text: `${icon} ${name.replace(/ \(.*\)$/, '')} — xem chứng từ`, callback_data: `y:v:${k}:${dd(range.fromDate)}:${dd(range.toDate)}` }]);
+    await tg.sendMessage(message, { reply_markup: { inline_keyboard: [...voucherRows, [
       { text: '🔄 Làm mới số liệu này', callback_data: refreshButton(config, range, [], REFRESH_PREFIX.cost) },
       { text: '📅 Chọn kỳ khác', callback_data: `${MODE_PREFIX.cost}:menu` },
     ]] } });
+    await progress.finish(true);
+    return { message };
+  } catch (e) {
+    await progress.finish(false);
+    throw e;
+  }
+}
+
+/** Chứng từ của 1 khoản chi phí (bấm từ báo cáo Chi phí). CHỈ chủ bot, CHỈ chat riêng. Kèm file Excel đầy đủ. */
+export async function handleCostVouchers(config, tg, account, range, { fresh = false, headed, ownerPrivate = false } = {}) {
+  if (!ownerPrivate || String(tg.chatId) !== String(config.secrets.telegramChatId)) { await tg.sendMessage(FIN_DENIED); return { message: null }; }
+  const name = COST_ACCOUNTS.find(([k]) => k === account)?.[2] ?? account;
+  const key = Object.keys(PERIOD_LABELS).find((k) => { const p = resolvePeriod(k); return p.fromDate === range.fromDate && p.toDate === range.toDate; });
+  const label = range.label ?? (key ? PERIOD_LABELS[key] : `${range.fromDate} – ${range.toDate}`);
+  const fileKey = `so_chi_tiet_tk__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}`;
+  const reuse = !fresh && fileAgeMinutes(config, fileKey) <= config.bot.maxDataAgeMinutes;
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'send'];
+  const progress = new Progress(tg, { title: `Đang lấy chứng từ ${name} (${account}) — ${label}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  await progress.start();
+  try {
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period: { ...range, today: resolvePeriod('today').today }, sourceIds: ['so_chi_tiet_tk'], fileKeys: { so_chi_tiet_tk: fileKey } });
+    const ds = data.datasets.so_chi_tiet_tk;
+    const src = ds.file;
+    if (!src || !fs.existsSync(src)) {
+      await tg.sendMessage(`⚠️ <b>Không lấy được sổ chi tiết tài khoản — ${escapeHtml(label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
+      await progress.finish(false);
+      return { message: null, failed: true };
+    }
+    const vouchers = expenseVouchers(await readLedger(src), account);
+    await progress.stage('send');
+    const message = buildVoucherMessage({ account, name, label, period: range, vouchers });
+    await tg.sendMessage(message);
+    if (vouchers.length) {
+      const xlsx = path.join(config.dirs.output, `chung-tu-${account}-${fileKey.split('__')[1]}.xlsx`);
+      await writeVoucherWorkbook(xlsx, { account, name, period: range, vouchers });
+      await tg.sendFile(xlsx, `📎 Đủ ${vouchers.length} chứng từ ${name} (${account}) — ${label}`).catch((e) => console.error(`Không gửi được file chứng từ: ${e.message}`));
+      fs.rmSync(xlsx, { force: true });
+    }
     await progress.finish(true);
     return { message };
   } catch (e) {
@@ -633,6 +675,12 @@ export async function handleCallbackData(config, tg, data, opts = {}) {
   const state = opts.state ?? defaultState;
   const [kind, a, b, c] = String(data).split(':');
   if (['f', 'e', 'y', 'o'].includes(kind) && !opts.ownerPrivate) return tg.sendMessage(FIN_DENIED);
+  if (kind === 'y' && a === 'v') { // y:v:<TK>:<từ ddmmyyyy>:<đến ddmmyyyy> — chứng từ của 1 khoản chi phí
+    const [, , acc, f, t] = String(data).split(':');
+    const d = (x) => `${x.slice(0, 2)}/${x.slice(2, 4)}/${x.slice(4)}`;
+    if (!COST_ACCOUNTS.some(([k]) => k === acc) || !/^\d{8}$/.test(f ?? '') || !/^\d{8}$/.test(t ?? '')) return tg.sendMessage('Yêu cầu không hợp lệ.');
+    return handleCostVouchers(config, tg, acc, { fromDate: d(f), toDate: d(t) }, opts);
+  }
   if (PREFIX_MODE[kind]) {
     const mode = PREFIX_MODE[kind];
     if (a === 'menu') return sendPeriodPicker(tg, '', mode, state);
