@@ -6,6 +6,7 @@ import path from 'node:path';
 import { template, totp } from './util.js';
 import { installNetworkGuard, assertStepAllowed, assertElementAllowed, ReadOnlyViolation } from './readonly.js';
 import { Supervisor } from './supervisor-client.js';
+import { allowedHostsOf, hostAllowed, makeRedactor } from './security.js';
 
 export class LoginError extends Error {}
 const t0 = (x) => x; // URL bước goto không dùng biến
@@ -26,6 +27,8 @@ export class AmisSession {
     this.sel = { ...DEFAULT_SELECTORS, ...(config.amis.selectors ?? {}) };
     this.headed = headed;
     this.log = log;
+    this.allowedHosts = allowedHostsOf(config.amis);
+    this.redact = makeRedactor([config.secrets?.password, config.secrets?.totpSecret]);
   }
 
   async open() {
@@ -45,7 +48,7 @@ export class AmisSession {
     });
     this.context.setDefaultTimeout(this.amis.timeoutMs ?? 30000);
     this.supervisor = new Supervisor({ ai: this.ai, allowPost: this.amis.readOnly?.allowPost, outputDir: this.dirs.output });
-    this.audit = await installNetworkGuard(this.context, { allowPost: this.amis.readOnly?.allowPost, log: this.log, supervisor: this.supervisor });
+    this.audit = await installNetworkGuard(this.context, { allowPost: this.amis.readOnly?.allowPost, log: this.log, supervisor: this.supervisor, allowedHosts: this.allowedHosts, redact: this.redact });
     this.page = this.context.pages()[0] ?? await this.context.newPage();
   }
 
@@ -256,7 +259,10 @@ export class AmisSession {
       const stepStart = Date.now();
       try {
         switch (action) {
-          case 'goto': await page.goto(t(arg), { waitUntil: 'domcontentloaded' }); break;
+          case 'goto':
+            if (!hostAllowed(t(arg), this.allowedHosts)) throw new ReadOnlyViolation(`Không mở địa chỉ ngoài máy chủ MISA: ${t(arg)}`);
+            await page.goto(t(arg), { waitUntil: 'domcontentloaded' });
+            break;
           case 'click': {
             // dạng rút gọn: "selector"; dạng đầy đủ: { selector, ifVisible?, unlessVisible?, optional?, timeout? }
             if (typeof arg === 'string') { await safeClick(t(arg)); break; }

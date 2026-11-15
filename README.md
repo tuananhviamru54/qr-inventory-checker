@@ -241,3 +241,27 @@ Không bấm gì trong `amis.concurrentDecisionMs` (mặc định 10 phút) thì
 4. Báo cáo cuối ngày 17:30 được gửi vào nhóm (chưa có nhóm thì gửi chat riêng của chủ bot).
 
 Danh sách nhóm và người được cấp quyền lưu ở `data/telegram-access.json` (có thể khai báo sẵn trong `config.json`: `bot.groupChatIds`, `bot.allowedUserIds`).
+
+## Bảo mật
+
+Các lớp bảo vệ có sẵn trong chương trình (luôn bật):
+
+| Lớp | Chống lại |
+|---|---|
+| Chỉ đọc (luật cứng + agent giám sát) | Mọi thao tác ghi/sửa/xoá trên AMIS, kể cả khi cấu hình bị sửa sai |
+| Chỉ làm việc với máy chủ MISA | Trang chính bị chuyển hướng sang trang giả mạo; dữ liệu bị gửi (POST) tới máy chủ bên thứ ba. Thêm máy chủ hợp lệ khác bằng `amis.allowedHosts` |
+| Che bí mật | Mật khẩu AMIS, mã bot, khoá TOTP, khoá AI lọt vào tin Telegram, nhật ký hay nội dung gửi cho AI |
+| Phân quyền Telegram | Người lạ ra lệnh: chỉ chủ bot và người được cấp quyền; nhóm phải do chủ bot bật |
+| Tự rời nhóm lạ + cảnh báo | Người khác kéo bot vào nhóm của họ, hoặc người lạ nhắn riêng cho bot → bot im lặng và báo chủ bot |
+| Giới hạn tần suất | Spam lệnh: tối đa 20 thao tác/phút mỗi người (`bot.maxActionsPerMinute`), hàng đợi tối đa 5 |
+| Bỏ lệnh cũ | Lệnh gửi lúc bot tắt quá 5 phút không bị chạy dồn khi bot bật lại |
+| Quyền file | `.env`, hồ sơ trình duyệt, `downloads/`, `output/` chỉ chủ tài khoản máy đọc được (Linux/macOS) |
+| Xoay vòng nhật ký | Nhật ký giám sát không phình vô hạn (5 MB/file) |
+
+Việc **bạn** cần làm (chương trình không tự làm được):
+
+1. **Tài khoản AMIS riêng cho bot**, chỉ có quyền xem/xuất báo cáo, bật xác thực 2 lớp.
+2. **Đổi mật khẩu AMIS và tạo lại mã bot** (@BotFather → `/revoke`) nếu chúng từng được gửi qua chat/email.
+3. Không đưa `.env`, `.auth/`, `downloads/`, `output/` lên git hay chia sẻ; máy chạy bot nên đặt mật khẩu và mã hoá ổ đĩa.
+4. Trong nhóm Telegram: chỉ thêm người cần xem số liệu; rà soát `/quyen` định kỳ.
+5. Cập nhật thư viện định kỳ: `npm audit` (hiện 0 lỗ hổng) và `npm update`.

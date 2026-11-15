@@ -13,6 +13,7 @@ import { analyzeAndReview } from './agents/orchestrate.js';
 import { reviewSection } from './agents/reviewer.js';
 import { Telegram } from './telegram.js';
 import { resolvePeriod, escapeHtml } from './util.js';
+import { makeRedactor, secretsOf, hardenFiles, rotateLogs } from './security.js';
 
 function findDownloaded(dir, id) {
   if (!fs.existsSync(dir)) return null;
@@ -22,7 +23,7 @@ function findDownloaded(dir, id) {
 
 export function telegramOf(config) {
   const s = config.secrets;
-  return new Telegram({ token: s.telegramToken, chatId: s.telegramChatId, apiBase: s.telegramApiBase });
+  return new Telegram({ token: s.telegramToken, chatId: s.telegramChatId, apiBase: s.telegramApiBase, redact: makeRedactor(secretsOf(config)) });
 }
 
 // ---- Phiên AMIS giữ ấm (chế độ bot): giữ trình duyệt đã đăng nhập thêm vài phút để các yêu cầu kế tiếp không phải đăng nhập lại ----
@@ -241,6 +242,8 @@ async function main() {
   const flag = (name) => args.includes(`--${name}`);
   const cfgIdx = args.indexOf('--config');
   const config = loadConfig(cfgIdx >= 0 ? args[cfgIdx + 1] : 'config.json');
+  hardenFiles(config);            // .env, hồ sơ trình duyệt, dữ liệu tải về: chỉ chủ tài khoản máy đọc được
+  rotateLogs(config.dirs.output); // nhật ký không phình vô hạn
 
   if (cmd === 'login') {
     // Mở trình duyệt có giao diện để đăng nhập / nhập OTP thủ công 1 lần; phiên được lưu vào .auth/profile

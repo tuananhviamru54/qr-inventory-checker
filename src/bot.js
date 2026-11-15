@@ -18,6 +18,7 @@ import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from '
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RateLimiter } from './security.js';
 
 // ---- Bộ điều khiển mặc định trong Telegram ----
 const BTN = {
@@ -717,7 +718,7 @@ export function loadAccess(config) {
 function saveAccess(config, acc) {
   const file = accessFile(config);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ chats: [...acc.chats].filter((c) => c !== acc.owner), users: [...acc.users].filter((u) => u !== acc.owner), names: acc.names }, null, 2));
+  fs.writeFileSync(file, JSON.stringify({ chats: [...acc.chats].filter((c) => c !== acc.owner), users: [...acc.users].filter((u) => u !== acc.owner), names: acc.names }, null, 2), { mode: 0o600 });
 }
 const personName = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(' ') || u?.username || String(u?.id);
 
@@ -747,6 +748,19 @@ export async function runBot(config, opts = {}) {
     await h.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
   }
   if (!opts.once) enableWarmSession(config.bot.keepSessionMinutes ?? 10);
+  // ---- Bảo vệ: giới hạn tần suất, bỏ lệnh cũ, cảnh báo người lạ ----
+  const limiter = new RateLimiter(config.bot.maxActionsPerMinute ?? 20, 60000);
+  const STALE_SEC = config.bot.ignoreMessagesOlderThanSec ?? 300; // tin gửi lúc bot tắt quá lâu → bỏ, tránh chạy dồn lệnh cũ
+  const alerted = new Map(); // khoá → thời điểm đã báo chủ bot (mỗi khoá tối đa 1 lần / 12 giờ)
+  const alertOwner = (key, html) => {
+    if (Date.now() - (alerted.get(key) ?? 0) < 12 * 3600e3) return;
+    alerted.set(key, Date.now());
+    if (alerted.size > 500) alerted.delete(alerted.keys().next().value);
+    console.log(`CẢNH BÁO: ${html.replace(/<[^>]+>/g, '')}`);
+    ctx(owner).tg.sendMessage(`🚨 <b>Cảnh báo bảo mật</b>\n${html}`).catch(() => {});
+  };
+  const botId = opts.once ? null : await tg.call('getMe', {}).then((m) => String(m.id), () => null);
+  const describe = (u) => `<b>${escapeHtml(personName(u))}</b>${u?.username ? ` (@${escapeHtml(u.username)})` : ''} · mã ${u?.id}`;
   let offset;
   let busy = false;
   tg.pollerActive = true; // vòng lặp này nhận cả lần bấm nút (ví dụ quyết định đăng nhập tiếp)
@@ -808,6 +822,7 @@ export async function runBot(config, opts = {}) {
         const answer = (text) => tg.call('answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: true } : {}) }).catch(() => {});
         if (!acc.chats.has(chat)) { await answer('Nhóm này chưa được bật bot.'); continue; }
         if (!acc.users.has(String(cq.from?.id))) { await answer('Bạn chỉ được xem. Nhờ chủ bot cấp quyền (/themnguoi) để bấm nút.'); continue; }
+        { const rl = limiter.check(String(cq.from?.id)); if (rl !== 'ok') { await answer(rl === 'warn' ? 'Bạn thao tác quá nhanh, chờ 1 phút rồi thử lại.' : undefined); continue; } }
         const { tg: t, state: st, opts: o } = ctx(chat);
         if (/^c:/.test(cq.data ?? '')) {
           await answer();
@@ -832,6 +847,13 @@ export async function runBot(config, opts = {}) {
       if (!msg) continue;
       const chat = String(msg.chat.id);
       const from = String(msg.from?.id ?? '');
+      if (msg.date && Date.now() / 1000 - msg.date > STALE_SEC) continue; // lệnh cũ dồn lại lúc bot tắt
+      // bot bị người KHÁC chủ bot kéo vào nhóm → rời nhóm ngay và báo chủ bot
+      if (botId && msg.new_chat_members?.some((m) => String(m.id) === botId) && from !== owner && !acc.chats.has(chat)) {
+        await tg.call('leaveChat', { chat_id: msg.chat.id }).catch(() => {});
+        alertOwner(`join${chat}`, `${describe(msg.from)} vừa kéo bot vào nhóm <b>${escapeHtml(msg.chat.title ?? chat)}</b>. Bot đã tự rời nhóm.\nNếu đây là nhóm của bạn: hãy tự thêm bot rồi gõ /start trong nhóm.`);
+        continue;
+      }
       // nhóm thường được Telegram nâng lên siêu nhóm → mã nhóm đổi, giữ quyền cho mã mới
       if (msg.migrate_to_chat_id && acc.chats.has(chat)) {
         const nid = String(msg.migrate_to_chat_id);
@@ -850,6 +872,7 @@ export async function runBot(config, opts = {}) {
           await t.sendMessage(`✅ Đã bật bot trong nhóm <b>${escapeHtml(msg.chat.title ?? '')}</b>.\nMọi thành viên xem được báo cáo; chỉ người được cấp quyền mới bấm nút/ra lệnh. Báo cáo cuối ngày 17:30 sẽ gửi vào nhóm này.\nChủ bot cấp quyền cho ai: trả lời (reply) 1 tin của người đó bằng /themnguoi.`).catch(() => {});
           dispatch(t, () => handleUpdate(config, t, '/start', ctx(chat).opts));
         } else if (msg.chat.type !== 'private') console.log(`Bỏ qua tin trong nhóm chưa bật: "${msg.chat.title}" (${chat})`);
+        else if (!acc.users.has(from)) alertOwner(`dm${from}`, `Người lạ nhắn riêng cho bot: ${describe(msg.from)}.\nBot không trả lời và không cung cấp số liệu nào.`);
         continue;
       }
       const { tg: t, opts: o } = ctx(chat);
@@ -874,6 +897,7 @@ export async function runBot(config, opts = {}) {
         continue;
       }
       if (!acc.users.has(from)) continue; // thành viên chưa được cấp quyền: chỉ xem, bot không trả lời
+      { const rl = limiter.check(from); if (rl !== 'ok') { if (rl === 'warn') await t.sendMessage('⏳ Bạn gửi lệnh quá nhanh. Chờ 1 phút rồi thử lại.').catch(() => {}); continue; } }
       dispatch(t, () => handleUpdate(config, t, msg.text, o));
     }
     if (opts.once) return;

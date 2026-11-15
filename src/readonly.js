@@ -3,6 +3,7 @@
 //   1. Lớp giao diện: từ chối bấm vào nút có chữ thuộc nhóm thao tác ghi (Cất, Lưu, Ghi sổ, Xoá, Sửa, Thêm...).
 //   2. Lớp mạng: chặn mọi yêu cầu PUT/PATCH/DELETE và các yêu cầu POST có đường dẫn mang nghĩa ghi dữ liệu.
 import { norm } from './util.js';
+import { hostAllowed } from './security.js';
 
 export class ReadOnlyViolation extends Error {}
 
@@ -72,16 +73,30 @@ export function blockReason(method, url, allowPost = []) {
  * Gắn lớp chặn mạng vào context của Playwright. Một yêu cầu không phải GET chỉ được đi khi CẢ HAI đồng ý:
  * luật cứng tại chỗ và agent giám sát độc lập (`supervisor`, nếu có).
  */
-export async function installNetworkGuard(context, { allowPost = [], log = () => {}, supervisor } = {}) {
+export async function installNetworkGuard(context, { allowPost = [], log = () => {}, supervisor, allowedHosts, redact = (x) => x } = {}) {
   const audit = { blocked: [], nonGet: [] };
   await context.route('**/*', async (route) => {
     const req = route.request();
     const method = req.method();
-    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return route.continue();
     const url = req.url().split('?')[0];
+    const foreign = allowedHosts && !hostAllowed(req.url(), allowedHosts);
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+      // không cho trang chính rời khỏi máy chủ MISA (chống chuyển hướng sang trang giả mạo để lấy mật khẩu)
+      if (foreign && req.isNavigationRequest() && req.frame() === req.frame().page().mainFrame()) {
+        audit.blocked.push({ method, url, reason: 'điều hướng ra ngoài MISA' });
+        log(`🔒 Đã chặn điều hướng tới ${url} (ngoài máy chủ MISA)`);
+        return route.abort('blockedbyclient').catch(() => {});
+      }
+      return route.continue();
+    }
+    // không gửi dữ liệu (POST...) tới máy chủ ngoài MISA; im lặng vì đây thường là đo lường của bên thứ ba
+    if (foreign) {
+      audit.nonGet.push({ time: new Date().toISOString(), method, url, blocked: 'máy chủ ngoài MISA' });
+      return route.abort('blockedbyclient').catch(() => {});
+    }
     let reason = blockReason(method, req.url(), allowPost);
     if (!reason && supervisor) {
-      const verdict = await supervisor.ask({ kind: 'request', method, url: req.url(), body: (req.postData() ?? '').slice(0, 400) });
+      const verdict = await supervisor.ask({ kind: 'request', method, url: req.url(), body: redact((req.postData() ?? '').slice(0, 400)) });
       if (!verdict.allow) reason = `giám sát: ${verdict.reason}`;
     } else if (reason && supervisor) {
       supervisor.ask({ kind: 'request', method, url: req.url() }).catch(() => {}); // để giám sát cũng ghi nhận

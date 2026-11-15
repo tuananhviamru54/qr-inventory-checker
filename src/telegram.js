@@ -15,7 +15,8 @@ function toUndiciBody(body) {
 const doFetch = (url, opts) => (dispatcher && !/^https?:\/\/(127\.|localhost)/.test(url) ? undiciFetch(url, { ...opts, body: toUndiciBody(opts.body), dispatcher }) : fetch(url, opts));
 
 export class Telegram {
-  constructor({ token, chatId, apiBase }) {
+  constructor({ token, chatId, apiBase, redact }) {
+    this.redact = redact ?? ((x) => x); // che bí mật trong mọi nội dung gửi đi
     if (!token || !chatId) throw new Error('Thiếu TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID trong file .env');
     this.chatId = chatId;
     this.waiters = new Map();   // token → hàm nhận quyết định
@@ -25,6 +26,7 @@ export class Telegram {
   }
 
   async call(method, body) {
+    if (body && !(body instanceof FormData)) { for (const k of ['text', 'caption']) if (typeof body[k] === 'string') body = { ...body, [k]: this.redact(body[k]) }; }
     for (let attempt = 1; ; attempt++) {
       let res, data;
       try {
@@ -33,7 +35,7 @@ export class Telegram {
           : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         data = await res.json().catch(() => ({}));
       } catch (e) {
-        if (attempt >= 4) throw new Error(`Không kết nối được Telegram: ${e.message}`);
+        if (attempt >= 4) throw new Error(this.redact(`Không kết nối được Telegram: ${e.message}`));
         await new Promise((r) => setTimeout(r, attempt * 2000));
         continue;
       }
@@ -138,7 +140,7 @@ export class Telegram {
   async sendFile(file, caption, method = 'sendDocument', { html = false, reply_markup } = {}) {
     const form = new FormData();
     form.set('chat_id', String(this.chatId));
-    if (caption) form.set('caption', caption.slice(0, 1024));
+    if (caption) form.set('caption', this.redact(caption).slice(0, 1024));
     if (html) form.set('parse_mode', 'HTML');
     if (reply_markup) form.set('reply_markup', JSON.stringify(reply_markup));
     form.set(method === 'sendPhoto' ? 'photo' : 'document', new Blob([await fs.readFile(file)]), path.basename(file));
