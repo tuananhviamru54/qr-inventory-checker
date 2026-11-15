@@ -101,7 +101,8 @@ export function dashboardCaption(config, now = new Date()) {
 export async function sendDashboard(config, tg) {
   try {
     await tg.sendFile(LOGO, dashboardCaption(config), 'sendPhoto', { html: true, reply_markup: DASHBOARD_KEYBOARD });
-  } catch {
+  } catch (e) {
+    console.error(`Không gửi được ảnh trang chủ: ${e.message}`);
     await tg.sendMessage(dashboardCaption(config), { reply_markup: DASHBOARD_KEYBOARD }); // không gửi được ảnh → gửi chữ
   }
 }

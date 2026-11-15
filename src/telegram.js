@@ -1,11 +1,18 @@
 // Gửi tin nhắn / file về Telegram qua Bot API.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
+import { ProxyAgent, fetch as undiciFetch, FormData as UndiciFormData } from 'undici';
 
 // Trong môi trường có proxy (HTTPS_PROXY) thì đi qua proxy; không có thì dùng fetch mặc định.
 const dispatcher = process.env.HTTPS_PROXY ? new ProxyAgent(process.env.HTTPS_PROXY) : undefined;
-const doFetch = (url, opts) => (dispatcher && !/^https?:\/\/(127\.|localhost)/.test(url) ? undiciFetch(url, { ...opts, dispatcher }) : fetch(url, opts));
+// fetch của gói undici không hiểu FormData có sẵn của Node (gửi thành chữ "[object FormData]") → chép sang FormData của undici.
+function toUndiciBody(body) {
+  if (!(body instanceof FormData)) return body;
+  const out = new UndiciFormData();
+  for (const [k, v] of body.entries()) typeof v === 'string' ? out.append(k, v) : out.append(k, v, v.name);
+  return out;
+}
+const doFetch = (url, opts) => (dispatcher && !/^https?:\/\/(127\.|localhost)/.test(url) ? undiciFetch(url, { ...opts, body: toUndiciBody(opts.body), dispatcher }) : fetch(url, opts));
 
 export class Telegram {
   constructor({ token, chatId, apiBase }) {
