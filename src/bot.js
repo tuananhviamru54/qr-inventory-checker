@@ -12,6 +12,7 @@ import { buildSalesMessage } from './sales.js';
 import { buildStockMessage } from './stock.js';
 import { buildDebtMessage } from './debt.js';
 import { buildCashMessage } from './cash.js';
+import { buildDailyMessage } from './daily.js';
 import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
@@ -41,6 +42,7 @@ export const MENU = {
 
 export const COMMANDS = [
   { command: 'start', description: 'Trang chủ: logo và các báo cáo' },
+  { command: 'cuoingay', description: 'Báo cáo cuối ngày: tiền, bán hàng, công nợ, tồn kho' },
   { command: 'moi', description: 'Lấy báo cáo mới nhất (làm mới dữ liệu từ AMIS)' },
   { command: 'tonkho', description: 'Báo cáo tồn kho theo kỳ và Nhóm VTHH' },
   { command: 'baocao', description: 'Báo cáo đối chiếu (tồn kho với kiểm kê)' },
@@ -74,6 +76,7 @@ export const DASHBOARD_KEYBOARD = { inline_keyboard: [
   [{ text: '📊 Tồn kho', callback_data: 'k:menu' }, { text: '💵 Quỹ tiền', callback_data: 'm:menu' }],
   [{ text: '💰 DS mặt hàng', callback_data: 's:menu' }, { text: '👥 DS khách hàng', callback_data: 'h:menu' }],
   [{ text: '🧾 Phải thu KH', callback_data: 'p:menu' }, { text: '🏭 Phải trả NCC', callback_data: 'q:menu' }],
+  [{ text: '📋 Báo cáo cuối ngày', callback_data: 'z:daily' }],
   [{ text: '🔄 Đối chiếu kho', callback_data: 'z:check' }, { text: '❓ Hướng dẫn', callback_data: 'z:help' }],
 ] };
 export function dashboardCaption(config, now = new Date()) {
@@ -93,6 +96,7 @@ export function dashboardCaption(config, now = new Date()) {
     '   🧾 Phải thu khách hàng (TK 131)',
     '   🏭 Phải trả nhà cung cấp (TK 331)',
     '   💵 Quỹ tiền — tiền mặt + ngân hàng',
+    '📋 <b>BÁO CÁO CUỐI NGÀY</b> — tự gửi lúc 17:30',
     '━━━━━━━━━━━━━━━━━━',
     '🛡 Chỉ đọc · mọi thao tác ghi đều bị chặn',
     '👇 Chọn báo cáo bên dưới',
@@ -369,6 +373,54 @@ export async function handleCash(config, tg, range, { fresh = false, headed } = 
   }
 }
 
+// ---- Báo cáo cuối ngày: 7 báo cáo AMIS trong 1 lần đăng nhập → 1 tin tóm tắt ----
+const DAILY_SOURCES = { cash: 'quy_tien_mat', bank: 'so_du_ngan_hang', sales: 'doanh_so', salesKh: 'doanh_so_kh', ar: 'cong_no_phai_thu', ap: 'cong_no_phai_tra', stock: 'ton_kho_nhom' };
+export async function handleDaily(config, tg, { fresh = false, headed, date } = {}) {
+  const today = date ?? resolvePeriod('today').today;
+  const period = { fromDate: today, toDate: today, today };
+  const suffix = `__${today.replace(/\//g, '-')}_${today.replace(/\//g, '-')}`;
+  // cùng tên file với từng báo cáo lẻ → bấm xem chi tiết ngay sau đó sẽ dùng lại, không phải xuất lại
+  const fileKeys = Object.fromEntries(Object.values(DAILY_SOURCES).map((id) => [id, `${id === 'ton_kho_nhom' ? 'ton_kho' : id}${suffix}`]));
+  const ids = Object.values(DAILY_SOURCES);
+  const reuse = !fresh && ids.every((id) => fileAgeMinutes(config, fileKeys[id]) <= config.bot.maxDataAgeMinutes);
+  const stages = [...(reuse ? ['reuse'] : ['login', 'exportDaily']), 'check', 'send'];
+  const progress = new Progress(tg, { title: `Đang lập báo cáo cuối ngày ${today}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  await progress.start();
+  try {
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s === 'export' ? 'exportDaily' : s), period, sourceIds: ids, fileKeys, vars: { groups: '' } });
+    await progress.stage('send');
+    const ds = Object.fromEntries(Object.entries(DAILY_SOURCES).map(([k, id]) => [k, data.datasets[id]]));
+    const files = Object.values(data.datasets).map((d) => d.file).filter(Boolean);
+    const updatedAt = files.length ? vnTime(Math.min(...files.map((f) => fs.statSync(f).mtimeMs))) : '';
+    const failed = Object.values(ds).some((d) => !d || (d.error && !d.error.includes('NO_DATA')) || d.missing);
+    const message = [
+      buildDailyMessage({ date: today, targetDb: config.secrets.targetDb, ds, updatedAt }),
+      supervisionSection(data.supervision, data.blocked),
+    ].filter(Boolean).join('\n\n');
+    await tg.sendMessage(message, {
+      reply_markup: { inline_keyboard: [
+        [{ text: '💵 Quỹ tiền', callback_data: 'm:today' }, { text: '💰 DS mặt hàng', callback_data: 's:today' }, { text: '👥 DS khách', callback_data: 'h:today' }],
+        [{ text: '🧾 Phải thu', callback_data: 'p:today' }, { text: '🏭 Phải trả', callback_data: 'q:today' }, { text: '📊 Tồn kho', callback_data: 'k:today' }],
+        [{ text: '🔄 Làm mới báo cáo cuối ngày', callback_data: 'z:dailyfresh' }],
+      ] },
+    });
+    await progress.finish(!failed);
+    return { message, failed };
+  } catch (e) {
+    await progress.finish(false);
+    throw e;
+  }
+}
+
+/** Mili-giây tới lần `hh:mm` giờ Việt Nam kế tiếp. */
+export function msUntilVn(hhmm, now = Date.now()) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  const vnNow = new Date(now + 7 * 3600e3);
+  let target = Date.UTC(vnNow.getUTCFullYear(), vnNow.getUTCMonth(), vnNow.getUTCDate(), h, m) - 7 * 3600e3;
+  if (target <= now + 1000) target += 864e5;
+  return target - now;
+}
+
 export async function handleStock(config, tg, range, { fresh = false, headed, groups = [] } = {}) {
   const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
   const fileKey = `ton_kho__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}${groups.length ? `__${groupsKey(groups)}` : ''}`;
@@ -479,6 +531,8 @@ export async function handleCallbackData(config, tg, data, opts = {}) {
   }
   if (kind === 'z') {
     if (a === 'check') return handleReport(config, tg, { ...opts, fresh: false });
+    if (a === 'daily') return handleDaily(config, tg, opts);
+    if (a === 'dailyfresh') return handleDaily(config, tg, { ...opts, fresh: true });
     return tg.sendMessage(helpText(config), { reply_markup: MENU });
   }
   if (kind === 'c') {
@@ -616,6 +670,7 @@ export async function handleUpdate(config, tg, text, opts = {}) {
   if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config), { reply_markup: MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);
+  if (cmd === '/cuoingay') return handleDaily(config, tg, { ...opts, fresh: true });
   if (cmd === '/quytien') return sendPeriodPicker(tg, '', 'cash', state);
   if (cmd === '/congnoncc') return sendPeriodPicker(tg, '', 'ap', state);
   if (cmd === '/baocao') return handleReport(config, tg, { fresh: false, ...opts });
@@ -689,6 +744,17 @@ export async function runBot(config, opts = {}) {
     queue.push(work);
     pump();
   };
+
+  // Gửi tự động báo cáo cuối ngày (mặc định 17:30 giờ Việt Nam; bot.dailyReport.enabled = false để tắt)
+  const daily = { enabled: true, time: '17:30', ...(config.bot.dailyReport ?? {}) };
+  if (daily.enabled && !opts.once) {
+    const plan = () => {
+      const wait = msUntilVn(daily.time);
+      console.log(`Báo cáo cuối ngày: gửi lúc ${daily.time} (sau ${Math.round(wait / 60000)} phút)`);
+      setTimeout(() => { dispatch(() => handleDaily(config, tg, { ...opts, fresh: true })); plan(); }, wait).unref?.();
+    };
+    plan();
+  }
 
   for (;;) {
     let updates = [];

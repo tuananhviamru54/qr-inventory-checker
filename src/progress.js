@@ -5,6 +5,7 @@ import fs from 'node:fs';
 export const STAGE_LABELS = {
   login: 'Đăng nhập MISA AMIS (có giám sát)',
   export: 'Xuất báo cáo từ AMIS',
+  exportDaily: 'Xuất 7 báo cáo từ AMIS (tiền, bán hàng, công nợ, tồn kho)',
   reuse: 'Dùng lại dữ liệu vừa xuất',
   check: 'Đọc file và kiểm tra chéo',
   answer: 'Trợ lý soạn câu trả lời',
@@ -12,13 +13,14 @@ export const STAGE_LABELS = {
   review: 'Kế toán trưởng kiểm soát',
   send: 'Gửi kết quả',
 };
-const DEFAULT_SECONDS = { login: 12, export: 35, reuse: 1, check: 2, answer: 25, expert: 30, review: 25, send: 2 };
+const DEFAULT_SECONDS = { login: 12, export: 35, exportDaily: 200, reuse: 1, check: 2, answer: 25, expert: 30, review: 25, send: 2 };
 
 const BAR = 14;
 const SPINNER = ['🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚', '🕛'];
 // Câu mô tả vui theo từng bước (đổi mỗi ~2 nhịp)
 const FLAVOR = {
   login: ['🔐 Đang gõ cửa MISA AMIS…', '🛡 Giám sát đứng canh từng cú bấm…', '🗝 Kiểm tra đúng sổ KHO QUẢNG NINH…'],
+  exportDaily: ['💵 Đếm tiền trong quỹ…', '💰 Cộng doanh số trong ngày…', '🧾 Rà sổ công nợ khách hàng…', '🏭 Rà sổ công nợ nhà cung cấp…', '📦 Kiểm kho nhựa Ecoplast…', '🐉 Rồng kho đang gom số liệu cả ngày…'],
   export: ['🐉 Rồng kho đang lật từng trang sổ…', '📑 AMIS đang in báo cáo ra Excel…', '🧮 Đang cộng từng dòng, từng đồng…', '📦 Đếm hàng trong kho nhựa Ecoplast…', '🚚 Báo cáo đang trên đường về…'],
   reuse: ['⚡ Có sẵn số liệu mới lấy — dùng lại cho nhanh!'],
   check: ['🔍 Soi từng con số với dòng "Tổng cộng"…', '⚖️ Đầu kỳ + phát sinh = cuối kỳ? Đang kiểm…'],
