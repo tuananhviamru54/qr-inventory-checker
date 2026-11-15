@@ -257,7 +257,7 @@ export async function handleDebt(config, tg, mode, range, { fresh = false, heade
     if (ds.error || ds.missing) {
       await tg.sendMessage(`⚠️ <b>Không lấy được báo cáo ${title} — ${escapeHtml(range.label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
       await progress.finish(false);
-      return { message: null };
+      return { message: null, failed: true };
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
@@ -301,7 +301,7 @@ export async function handleStock(config, tg, range, { fresh = false, headed, gr
     if (ds.error || ds.missing) {
       await tg.sendMessage(`⚠️ <b>Không lấy được báo cáo tồn kho — ${escapeHtml(range.label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
       await progress.finish(false);
-      return { message: null };
+      return { message: null, failed: true };
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
@@ -349,7 +349,7 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
     if (ds.error || ds.missing) {
       await tg.sendMessage(`⚠️ <b>Không lấy được báo cáo ${what} — ${escapeHtml(range.label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
       await progress.finish(false);
-      return { message: null };
+      return { message: null, failed: true };
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
@@ -408,6 +408,15 @@ export async function handleCallbackData(config, tg, data, opts = {}) {
     return runReport(config, tg, REFRESH_MODE[kind], { fromDate, toDate, label: key ? PERIOD_LABELS[key] : `${fromDate} – ${toDate}` }, { ...opts, fresh: true, groups });
   }
   return tg.sendMessage('Lệnh không hợp lệ.');
+}
+
+/** Diễn giải lỗi cho người dùng: lỗi kỹ thuật tiếng Anh → câu dễ hiểu, kèm chi tiết gốc để gửi người phụ trách. */
+export function friendlyError(e) {
+  const msg = describeAiError(e) || String(e);
+  if (e instanceof ReferenceError || e instanceof TypeError || e instanceof SyntaxError) return `Lỗi trong chương trình của bot (không phải do AMIS hay do bạn). Nếu thử lại vẫn lỗi, hãy chụp màn hình này gửi người phụ trách.\nChi tiết: ${msg}`;
+  if (/timeout|timed out|hết thời gian|hết \d+s/i.test(msg)) return `AMIS phản hồi chậm hoặc mạng chập chờn.\nChi tiết: ${msg}`;
+  if (/fetch failed|ECONN|ENOTFOUND|net::/i.test(msg)) return `Mất kết nối mạng tới AMIS/Telegram.\nChi tiết: ${msg}`;
+  return msg;
 }
 
 const timingsFile = (config) => path.join(config.dirs.output, 'thoi-gian.json');
@@ -567,8 +576,18 @@ export async function runBot(config, opts = {}) {
     if (!work) return;
     busy = true;
     work()
-      .catch((e) => tg.sendMessage(`🚨 Không xử lý được yêu cầu: ${escapeHtml(describeAiError(e))}`).catch(() => {}))
+      .then((r) => (r?.failed ? offerRetry(work, '👆 Yêu cầu trên chưa lấy được số liệu.') : null))
+      .catch((e) => { console.error(e); return offerRetry(work, `🚨 <b>Không xử lý được yêu cầu</b>\n${escapeHtml(friendlyError(e))}`); })
       .finally(() => { busy = false; pump(); });
+  };
+  // Nút "Thử lại" dưới tin lỗi: nhớ lại yêu cầu vừa hỏng (tối đa 20) để chạy lại đúng yêu cầu đó khi bấm.
+  const retries = new Map();
+  let retrySeq = 0;
+  const offerRetry = (work, html) => {
+    const id = String(++retrySeq);
+    retries.set(id, work);
+    if (retries.size > 20) retries.delete(retries.keys().next().value);
+    return tg.sendMessage(`${html}\nBấm nút dưới đây để chạy lại đúng yêu cầu này.`, { reply_markup: { inline_keyboard: [[{ text: '🔁 Thử lại', callback_data: `t:${id}` }]] } }).catch(() => {});
   };
   const dispatch = (work) => {
     if (queue.length >= MAX_QUEUE) return tg.sendMessage(`⏳ Hàng đợi đã đầy (${MAX_QUEUE} yêu cầu đang chờ). Vui lòng chờ bớt rồi gửi lại.`).catch(() => {});
@@ -593,6 +612,11 @@ export async function runBot(config, opts = {}) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           const run = await applyGroupPick(tg, state, cq.data, cq.message.message_id).catch(() => null);
           if (run) dispatch(() => runReport(config, tg, run.mode, run.range, { ...opts, groups: run.groups }));
+        } else if (/^t:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
+          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
+          const work = retries.get(cq.data.slice(2));
+          if (work) dispatch(work);
+          else await tg.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo ở bàn phím bên dưới.').catch(() => {});
         } else if (/^[skpqhjruvw]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           dispatch(() => handleCallbackData(config, tg, cq.data, opts));

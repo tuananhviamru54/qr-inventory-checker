@@ -20,3 +20,10 @@ test('doanh số theo khách hàng: tổng lệch dòng "Tổng cộng" thì c�
   const msg = buildSalesMessage({ by: 'customer', label: 'x', period, dataset: { missingFields: [], rows: [row('A', 100, 10, 0, 90, 60, 30)], totals: row('Tổng cộng', 999, 10, 0, 90, 60, 30) } });
   assert.match(msg, /khác dòng "Tổng cộng"/);
 });
+
+test('tin lỗi dễ hiểu: lỗi chương trình, AMIS chậm, lỗi khác giữ nguyên', async () => {
+  const { friendlyError } = await import('../src/bot.js');
+  assert.match(friendlyError(new ReferenceError('by is not defined')), /Lỗi trong chương trình.*\n.*by is not defined/);
+  assert.match(friendlyError(new Error('locator.waitFor: Timeout 30000ms exceeded')), /AMIS phản hồi chậm/);
+  assert.equal(friendlyError(new Error('Tài khoản đang được dùng ở nơi khác')), 'Tài khoản đang được dùng ở nơi khác');
+});
