@@ -232,3 +232,12 @@ Không bấm gì trong `amis.concurrentDecisionMs` (mặc định 10 phút) thì
 ---
 
 `index.html` là bản demo quét mã QR kiểm kho tĩnh ban đầu.
+
+## Dùng bot trong nhóm Telegram
+
+1. Thêm bot vào nhóm. Nên tắt *Privacy mode* (@BotFather → `/setprivacy` → chọn bot → **Disable**), rồi **xoá bot khỏi nhóm và thêm lại** để thay đổi có hiệu lực — khi đó bot mới nhận được các nút trên bàn phím (vốn gửi như tin thường). Ô bấm trên trang chủ và lệnh `/...` vẫn chạy kể cả khi chưa tắt.
+2. **Chủ bot** gõ `/start` trong nhóm → bot bật cho nhóm đó (người khác gõ thì bot bỏ qua).
+3. Mọi thành viên **xem** được báo cáo; chỉ người được cấp quyền mới bấm nút / ra lệnh. Chủ bot cấp quyền bằng cách **trả lời (reply)** một tin của người đó với `/themnguoi`; bỏ quyền: reply `/boquyen`; xem danh sách: `/quyen`; tắt bot trong nhóm: `/tatnhom`.
+4. Báo cáo cuối ngày 17:30 được gửi vào nhóm (chưa có nhóm thì gửi chat riêng của chủ bot).
+
+Danh sách nhóm và người được cấp quyền lưu ở `data/telegram-access.json` (có thể khai báo sẵn trong `config.json`: `bot.groupChatIds`, `bot.allowedUserIds`).

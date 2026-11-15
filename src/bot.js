@@ -700,16 +700,51 @@ function salesIntent(config, tg, intent, opts) {
   return sendPeriodPicker(tg, intent?.error ? `⚠️ ${escapeHtml(intent.error)}` : '', 'sales', opts.state ?? defaultState);
 }
 
+// ---- Quyền dùng bot: chat riêng của chủ bot + các nhóm chủ bot đã bật (gõ /start trong nhóm) ----
+// Lưu ở data/telegram-access.json: { chats: [mã nhóm], users: [mã người được ra lệnh] }. Chủ bot luôn có quyền.
+function accessFile(config) { return path.join(config.root ?? process.cwd(), 'data', 'telegram-access.json'); }
+export function loadAccess(config) {
+  let saved = {};
+  try { saved = JSON.parse(fs.readFileSync(accessFile(config), 'utf8')); } catch { /* chưa có */ }
+  const owner = String(config.secrets.telegramChatId);
+  return {
+    owner,
+    chats: new Set([owner, ...(config.bot.groupChatIds ?? []), ...(saved.chats ?? [])].map(String)),
+    users: new Set([owner, ...(config.bot.allowedUserIds ?? []), ...(saved.users ?? [])].map(String)),
+    names: saved.names ?? {},
+  };
+}
+function saveAccess(config, acc) {
+  const file = accessFile(config);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ chats: [...acc.chats].filter((c) => c !== acc.owner), users: [...acc.users].filter((u) => u !== acc.owner), names: acc.names }, null, 2));
+}
+const personName = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(' ') || u?.username || String(u?.id);
+
 export async function runBot(config, opts = {}) {
   const tg = telegramOf(config);
-  const owner = String(config.secrets.telegramChatId);
-  const state = { awaitingRange: null, cal: null, pick: null };
-  opts = { ...opts, state };
-  console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhấn Ctrl+C để dừng.`);
+  const acc = loadAccess(config);
+  const owner = acc.owner;
+  // mỗi khung chat (riêng / nhóm) có Telegram + trạng thái riêng; chung hàng đợi vì chỉ có 1 phiên AMIS
+  const ctxs = new Map();
+  const ctx = (chatId) => {
+    const id = String(chatId);
+    if (!ctxs.has(id)) {
+      const t = id === String(tg.chatId) ? tg : telegramOf({ ...config, secrets: { ...config.secrets, telegramChatId: id } });
+      t.waiters = tg.waiters; t.pollerActive = true; // dùng chung danh sách chờ quyết định "đăng nhập tiếp?"
+      const st = { awaitingRange: null, cal: null, pick: null };
+      ctxs.set(id, { tg: t, state: st, opts: { ...opts, state: st } });
+    }
+    return ctxs.get(id);
+  };
+  const groups = () => [...acc.chats].filter((c) => c !== owner);
+  console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhóm đã bật: ${groups().length ? groups().map((g) => `${acc.names[g] ?? ''} (${g})`).join(', ') : 'chưa có'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
   if (config.bot.announceOnStart !== false) {
-    await sendDashboard(config, tg).catch(() => {});
-    await tg.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
+    const home = groups()[0] ?? owner; // đã có nhóm → chào trong nhóm
+    const h = ctx(home).tg;
+    await sendDashboard(config, h).catch(() => {});
+    await h.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
   }
   if (!opts.once) enableWarmSession(config.bot.keepSessionMinutes ?? 10);
   let offset;
@@ -721,37 +756,42 @@ export async function runBot(config, opts = {}) {
   const queue = [];
   const pump = () => {
     if (busy) return;
-    const work = queue.shift();
-    if (!work) return;
+    const job = queue.shift();
+    if (!job) return;
     busy = true;
-    work()
-      .then((r) => (r?.failed ? offerRetry(work, '👆 Yêu cầu trên chưa lấy được số liệu.') : null))
-      .catch((e) => { console.error(e); return offerRetry(work, `🚨 <b>Không xử lý được yêu cầu</b>\n${escapeHtml(friendlyError(e))}`); })
+    job.work()
+      .then((r) => (r?.failed ? offerRetry(job, '👆 Yêu cầu trên chưa lấy được số liệu.') : null))
+      .catch((e) => { console.error(e); return offerRetry(job, `🚨 <b>Không xử lý được yêu cầu</b>\n${escapeHtml(friendlyError(e))}`); })
       .finally(() => { busy = false; pump(); });
   };
   // Nút "Thử lại" dưới tin lỗi: nhớ lại yêu cầu vừa hỏng (tối đa 20) để chạy lại đúng yêu cầu đó khi bấm.
   const retries = new Map();
   let retrySeq = 0;
-  const offerRetry = (work, html) => {
+  const offerRetry = (job, html) => {
     const id = String(++retrySeq);
-    retries.set(id, work);
+    retries.set(id, job);
     if (retries.size > 20) retries.delete(retries.keys().next().value);
-    return tg.sendMessage(`${html}\nBấm nút dưới đây để chạy lại đúng yêu cầu này.`, { reply_markup: { inline_keyboard: [[{ text: '🔁 Thử lại', callback_data: `t:${id}` }]] } }).catch(() => {});
+    return job.tg.sendMessage(`${html}\nBấm nút dưới đây để chạy lại đúng yêu cầu này.`, { reply_markup: { inline_keyboard: [[{ text: '🔁 Thử lại', callback_data: `t:${id}` }]] } }).catch(() => {});
   };
-  const dispatch = (work) => {
-    if (queue.length >= MAX_QUEUE) return tg.sendMessage(`⏳ Hàng đợi đã đầy (${MAX_QUEUE} yêu cầu đang chờ). Vui lòng chờ bớt rồi gửi lại.`).catch(() => {});
-    if (busy) tg.sendMessage(`🕒 Đã xếp hàng — còn ${queue.length + 1} yêu cầu đang chờ sau yêu cầu hiện tại, bot sẽ làm lần lượt và gửi kết quả theo thứ tự.`).catch(() => {});
-    queue.push(work);
+  const dispatch = (t, work) => {
+    if (queue.length >= MAX_QUEUE) return t.sendMessage(`⏳ Hàng đợi đã đầy (${MAX_QUEUE} yêu cầu đang chờ). Vui lòng chờ bớt rồi gửi lại.`).catch(() => {});
+    if (busy) t.sendMessage(`🕒 Đã xếp hàng — còn ${queue.length + 1} yêu cầu đang chờ sau yêu cầu hiện tại, bot sẽ làm lần lượt và gửi kết quả theo thứ tự.`).catch(() => {});
+    queue.push({ tg: t, work });
     pump();
   };
 
-  // Gửi tự động báo cáo cuối ngày (mặc định 17:30 giờ Việt Nam; bot.dailyReport.enabled = false để tắt)
+  // Gửi tự động báo cáo cuối ngày (mặc định 17:30 giờ Việt Nam; bot.dailyReport.enabled = false để tắt).
+  // Có nhóm → gửi vào nhóm; chưa có → gửi chat riêng của chủ bot.
   const daily = { enabled: true, time: '17:30', ...(config.bot.dailyReport ?? {}) };
   if (daily.enabled && !opts.once) {
     const plan = () => {
       const wait = msUntilVn(daily.time);
       console.log(`Báo cáo cuối ngày: gửi lúc ${daily.time} (sau ${Math.round(wait / 60000)} phút)`);
-      setTimeout(() => { dispatch(() => handleDaily(config, tg, { ...opts, fresh: true })); plan(); }, wait).unref?.();
+      setTimeout(() => {
+        const targets = groups().length ? groups() : [owner];
+        targets.forEach((chat, i) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(config, c.tg, { ...c.opts, fresh: i === 0 })); });
+        plan();
+      }, wait).unref?.();
     };
     plan();
   }
@@ -764,28 +804,77 @@ export async function runBot(config, opts = {}) {
       offset = u.update_id + 1;
       const cq = u.callback_query;
       if (cq) {
-        if (/^c:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
-          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
-          const range = await applyCalendar(tg, state, cq.data, cq.message.message_id).catch(() => null); // chỉ sửa giao diện → làm ngay cả khi bot đang bận
-          if (range) dispatch(() => beginSales(config, tg, range, opts));
-        } else if (/^g:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
-          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
-          const run = await applyGroupPick(tg, state, cq.data, cq.message.message_id).catch(() => null);
-          if (run) dispatch(() => runReport(config, tg, run.mode, run.range, { ...opts, groups: run.groups }));
-        } else if (/^t:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
-          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
-          const work = retries.get(cq.data.slice(2));
-          if (work) dispatch(work);
-          else await tg.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo ở bàn phím bên dưới.').catch(() => {});
-        } else if (/^[skpqhjmnruvwz]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
-          await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
-          dispatch(() => handleCallbackData(config, tg, cq.data, opts));
-        } else await tg.handleCallback(cq).catch(() => {});
+        const chat = String(cq.message?.chat?.id ?? '');
+        const answer = (text) => tg.call('answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: true } : {}) }).catch(() => {});
+        if (!acc.chats.has(chat)) { await answer('Nhóm này chưa được bật bot.'); continue; }
+        if (!acc.users.has(String(cq.from?.id))) { await answer('Bạn chỉ được xem. Nhờ chủ bot cấp quyền (/themnguoi) để bấm nút.'); continue; }
+        const { tg: t, state: st, opts: o } = ctx(chat);
+        if (/^c:/.test(cq.data ?? '')) {
+          await answer();
+          const range = await applyCalendar(t, st, cq.data, cq.message.message_id).catch(() => null); // chỉ sửa giao diện → làm ngay cả khi bot đang bận
+          if (range) dispatch(t, () => beginSales(config, t, range, o));
+        } else if (/^g:/.test(cq.data ?? '')) {
+          await answer();
+          const run = await applyGroupPick(t, st, cq.data, cq.message.message_id).catch(() => null);
+          if (run) dispatch(t, () => runReport(config, t, run.mode, run.range, { ...o, groups: run.groups }));
+        } else if (/^t:/.test(cq.data ?? '')) {
+          await answer();
+          const job = retries.get(cq.data.slice(2));
+          if (job) dispatch(job.tg, job.work);
+          else await t.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo.').catch(() => {});
+        } else if (/^[skpqhjmnruvwz]:/.test(cq.data ?? '')) {
+          await answer();
+          dispatch(t, () => handleCallbackData(config, t, cq.data, o));
+        } else await t.handleCallback(cq).catch(() => {});
         continue;
       }
       const msg = u.message;
-      if (!msg?.text || String(msg.chat.id) !== owner) continue;
-      dispatch(() => handleUpdate(config, tg, msg.text, opts));
+      if (!msg) continue;
+      const chat = String(msg.chat.id);
+      const from = String(msg.from?.id ?? '');
+      // nhóm thường được Telegram nâng lên siêu nhóm → mã nhóm đổi, giữ quyền cho mã mới
+      if (msg.migrate_to_chat_id && acc.chats.has(chat)) {
+        const nid = String(msg.migrate_to_chat_id);
+        acc.chats.delete(chat); acc.chats.add(nid); acc.names[nid] = acc.names[chat]; delete acc.names[chat]; saveAccess(config, acc);
+        console.log(`Nhóm ${chat} đổi mã thành ${nid}`);
+        continue;
+      }
+      if (!msg.text) continue;
+      const cmd = msg.text.split(/\s+/)[0].toLowerCase().replace(/@.*$/, '');
+      if (!acc.chats.has(chat)) {
+        // chỉ chủ bot bật được bot trong nhóm, bằng /start
+        if (from === owner && cmd === '/start' && msg.chat.type !== 'private') {
+          acc.chats.add(chat); acc.names[chat] = msg.chat.title ?? ''; saveAccess(config, acc);
+          console.log(`Đã bật bot trong nhóm "${msg.chat.title}" (${chat})`);
+          const t = ctx(chat).tg;
+          await t.sendMessage(`✅ Đã bật bot trong nhóm <b>${escapeHtml(msg.chat.title ?? '')}</b>.\nMọi thành viên xem được báo cáo; chỉ người được cấp quyền mới bấm nút/ra lệnh. Báo cáo cuối ngày 17:30 sẽ gửi vào nhóm này.\nChủ bot cấp quyền cho ai: trả lời (reply) 1 tin của người đó bằng /themnguoi.`).catch(() => {});
+          dispatch(t, () => handleUpdate(config, t, '/start', ctx(chat).opts));
+        } else if (msg.chat.type !== 'private') console.log(`Bỏ qua tin trong nhóm chưa bật: "${msg.chat.title}" (${chat})`);
+        continue;
+      }
+      const { tg: t, opts: o } = ctx(chat);
+      // quản lý quyền (chỉ chủ bot): trả lời tin của 1 người bằng /themnguoi hoặc /boquyen
+      if (cmd === '/themnguoi' || cmd === '/boquyen' || cmd === '/quyen' || cmd === '/tatnhom') {
+        if (from !== owner) { await t.sendMessage('Chỉ chủ bot dùng được lệnh này.').catch(() => {}); continue; }
+        const who = msg.reply_to_message?.from;
+        if (cmd === '/quyen') {
+          const list = [...acc.users].map((id) => `• ${escapeHtml(acc.names[`u${id}`] ?? (id === owner ? 'Chủ bot' : id))}`).join('\n');
+          await t.sendMessage(`👥 <b>Người được ra lệnh cho bot</b>\n${list}\n\n🏢 Nhóm đã bật: ${groups().map((g) => escapeHtml(acc.names[g] || g)).join(', ') || 'chưa có'}`).catch(() => {});
+        } else if (cmd === '/tatnhom') {
+          if (chat === owner) { await t.sendMessage('Lệnh này dùng trong nhóm cần tắt.').catch(() => {}); continue; }
+          acc.chats.delete(chat); saveAccess(config, acc);
+          await t.sendMessage('⛔ Đã tắt bot trong nhóm này. Chủ bot gõ /start để bật lại.', { reply_markup: { remove_keyboard: true } }).catch(() => {});
+        } else if (!who || who.is_bot) await t.sendMessage(`Hãy trả lời (reply) đúng 1 tin của người cần ${cmd === '/themnguoi' ? 'cấp' : 'bỏ'} quyền rồi gõ ${cmd}.`).catch(() => {});
+        else if (String(who.id) === owner) await t.sendMessage('Chủ bot luôn có quyền.').catch(() => {});
+        else {
+          if (cmd === '/themnguoi') { acc.users.add(String(who.id)); acc.names[`u${who.id}`] = personName(who); } else acc.users.delete(String(who.id));
+          saveAccess(config, acc);
+          await t.sendMessage(cmd === '/themnguoi' ? `✅ <b>${escapeHtml(personName(who))}</b> đã được ra lệnh và bấm nút cho bot.` : `⛔ Đã bỏ quyền của <b>${escapeHtml(personName(who))}</b>.`).catch(() => {});
+        }
+        continue;
+      }
+      if (!acc.users.has(from)) continue; // thành viên chưa được cấp quyền: chỉ xem, bot không trả lời
+      dispatch(t, () => handleUpdate(config, t, msg.text, o));
     }
     if (opts.once) return;
   }

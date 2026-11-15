@@ -10,7 +10,7 @@ import { runPipeline } from '../src/index.js';
 import { LoginError } from '../src/amis.js';
 import { parseNumber, resolvePeriod, totp, parseDateRange } from '../src/util.js';
 import { blockReason, forbiddenLabel } from '../src/readonly.js';
-import { handleUpdate, handleCallbackData, parseSalesIntent, buildCalendar, groupKeyboard, MENU, COMMANDS } from '../src/bot.js';
+import { handleUpdate, handleCallbackData, parseSalesIntent, buildCalendar, groupKeyboard, MENU, COMMANDS, runBot } from '../src/bot.js';
 import { groupsKey, loadGroups } from '../src/groups.js';
 import { Telegram } from '../src/telegram.js';
 import { Supervisor } from '../src/supervisor-client.js';
@@ -624,4 +624,43 @@ test('tiện ích', async () => {
   // 17:30 UTC đã sang ngày hôm sau theo giờ VN
   assert.equal(resolvePeriod('today', new Date('2026-11-14T17:30:00Z')).today, '15/11/2026');
   assert.equal(await totp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 59000), '287082'); // vector RFC 6238
+});
+
+test('bot trong nhóm: chỉ chủ bot bật được nhóm, thành viên chỉ xem cho tới khi được cấp quyền', async () => {
+  const mock = await startMock();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'amis-'));
+  try {
+    const config = makeConfig(mock, root);
+    config.bot = { ...config.bot, announceOnStart: false, dailyReport: { enabled: false } };
+    const G = -100555;
+    const group = { id: G, type: 'supergroup', title: 'Kho QN' };
+    let uid = 0;
+    const msg = (from, text, extra = {}) => ({ update_id: ++uid, message: { message_id: uid, chat: group, from: { id: from, first_name: `U${from}` }, text, ...extra } });
+    const sent = () => mock.state.telegram.filter((c) => c.method !== 'getUpdates' && c.method !== 'setMyCommands');
+    const toGroup = () => sent().filter((c) => c.text.includes(String(G)));
+    const once = async (updates) => { mock.state.updates.push(...updates); await runBot(config, { once: true }); await new Promise((r) => setTimeout(r, 400)); };
+
+    await once([msg(7, '/start')]); // thành viên thường không bật được
+    assert.equal(toGroup().length, 0);
+    await once([msg(42, '/start@Misa_bot')]); // chủ bot bật nhóm
+    assert.ok(toGroup().some((c) => /Đã bật bot trong nhóm/.test(c.text)));
+    assert.ok(toGroup().some((c) => c.method === 'sendPhoto')); // trang chủ có logo
+    const access = JSON.parse(fs.readFileSync(path.join(root, 'data', 'telegram-access.json'), 'utf8'));
+    assert.deepEqual(access.chats, [String(G)]);
+
+    const before = toGroup().length;
+    await once([msg(7, '/trogiup')]); // chưa có quyền → bot im lặng
+    assert.equal(toGroup().length, before);
+    await once([{ update_id: ++uid, callback_query: { id: 'cq1', from: { id: 7 }, message: { message_id: 1, chat: group }, data: 'm:menu' } }]);
+    assert.match(sent().at(-1).text, /Bạn chỉ được xem/);
+
+    await once([msg(42, '/themnguoi', { reply_to_message: { from: { id: 7, first_name: 'Lan' } } })]);
+    assert.match(sent().at(-1).text, /Lan.*đã được ra lệnh/);
+    await once([msg(7, '/trogiup')]);
+    assert.match(sent().at(-1).text, /Bot đối chiếu MISA AMIS/);
+    assert.ok(sent().at(-1).text.includes(String(G)));
+
+    await once([msg(7, '/boquyen', { reply_to_message: { from: { id: 8 } } })]); // chỉ chủ bot quản lý quyền
+    assert.match(sent().at(-1).text, /Chỉ chủ bot/);
+  } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
