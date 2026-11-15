@@ -68,16 +68,32 @@ const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q', ca
 const PREFIX_MODE = Object.fromEntries(Object.entries(MODE_PREFIX).map(([m, p]) => [p, m]));
 const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w', cash: 'n', fin: 'e' };
 const REFRESH_MODE = Object.fromEntries(Object.entries(REFRESH_PREFIX).map(([m, p]) => [p, m]));
+/** Kỳ "Tháng N" của năm hiện tại (giờ VN). */
+export function monthRange(mm, now = new Date()) {
+  const y = +resolvePeriod('today', now).today.split('/')[2];
+  const last = new Date(Date.UTC(y, mm, 0)).getUTCDate();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return { fromDate: `01/${p2(mm)}/${y}`, toDate: `${p2(last)}/${p2(mm)}/${y}`, label: `Tháng ${mm}/${y}` };
+}
+const financeKeyboard = (now = new Date()) => {
+  const cur = +resolvePeriod('today', now).today.split('/')[1];
+  const months = Array.from({ length: cur }, (_, i) => ({ text: `Tháng ${i + 1}`, callback_data: `f:mon:${i + 1}` }));
+  const rows = [];
+  for (let i = 0; i < months.length; i += 4) rows.push(months.slice(i, i + 4));
+  return { inline_keyboard: [
+    ...rows,
+    [{ text: 'Quý này', callback_data: 'f:thisQuarter' }, { text: 'Quý trước', callback_data: 'f:lastQuarter' }],
+    [{ text: 'Năm nay', callback_data: 'f:thisYear' }, { text: 'Năm trước', callback_data: 'f:lastYear' }],
+    [{ text: '📅 Tùy chọn ngày', callback_data: 'f:custom' }],
+  ] };
+};
 const periodKeyboard = (mode = 'sales') => {
+  if (mode === 'fin') return financeKeyboard();
   const p = MODE_PREFIX[mode] ?? 's';
   return { inline_keyboard: [
     [{ text: 'Hôm nay', callback_data: `${p}:today` }, { text: 'Hôm qua', callback_data: `${p}:yesterday` }],
     [{ text: 'Tuần này', callback_data: `${p}:thisWeek` }, { text: 'Tháng này', callback_data: `${p}:thisMonth` }],
     [{ text: 'Tháng trước', callback_data: `${p}:lastMonth` }, { text: '📅 Tùy chọn ngày', callback_data: `${p}:custom` }],
-    ...(mode === 'fin' ? [
-      [{ text: 'Quý này', callback_data: `${p}:thisQuarter` }, { text: 'Quý trước', callback_data: `${p}:lastQuarter` }],
-      [{ text: 'Năm nay', callback_data: `${p}:thisYear` }, { text: 'Năm trước', callback_data: `${p}:lastYear` }],
-    ] : []),
   ] };
 };
 
@@ -584,6 +600,7 @@ export async function handleCallbackData(config, tg, data, opts = {}) {
       state.awaitingRange = Date.now(); // vẫn cho phép gõ tay khoảng ngày
       return sendCalendar(tg, state);
     }
+    if (a === 'mon' && +b >= 1 && +b <= 12) return beginSales(config, tg, monthRange(+b), { ...opts, mode });
     if (PERIOD_LABELS[a]) return beginSales(config, tg, periodOf(a), { ...opts, mode });
     return tg.sendMessage('Lựa chọn không hợp lệ.');
   }

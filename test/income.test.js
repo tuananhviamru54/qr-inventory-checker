@@ -41,7 +41,8 @@ test('kết quả kinh doanh: chỉ chủ bot trong chat riêng mới xem đư�
   await handleUpdate(config, tg('42'), '/ketqua', { state, ownerPrivate: true });     // chat riêng của chủ bot
   assert.match(sent.at(-1).t, /Kết quả hoạt động kinh doanh/);
   const keys = sent.at(-1).o.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
-  for (const k of ['f:thisMonth', 'f:lastMonth', 'f:thisQuarter', 'f:lastQuarter', 'f:thisYear', 'f:lastYear', 'f:custom']) assert.ok(keys.includes(k), k);
+  for (const k of ['f:mon:1', 'f:mon:2', 'f:thisQuarter', 'f:lastQuarter', 'f:thisYear', 'f:lastYear', 'f:custom']) assert.ok(keys.includes(k), k);
+  for (const k of ['f:today', 'f:yesterday', 'f:thisWeek']) assert.ok(!keys.includes(k), k);
   assert.ok(MENU_OWNER.keyboard.flat().some((b) => /Kết quả KD/.test(b.text)));
   assert.ok(!MENU.keyboard.flat().some((b) => /Kết quả KD/.test(b.text)));
 });
@@ -52,4 +53,10 @@ test('trang chủ: ô Kết quả kinh doanh chỉ có trong chat riêng của c
   assert.ok(data(dashboardKeyboard(true)).includes('f:menu'));
   assert.ok(!data(dashboardKeyboard(false)).includes('f:menu'));
   assert.ok((dashboardCaption({ secrets: {} }) + '\n🔒 <i>Riêng bạn: Kết quả kinh doanh (B02)</i>').length < 1024);
+});
+
+test('kỳ Tháng N: đúng ngày đầu/cuối tháng, kể cả tháng 2', async () => {
+  const { monthRange } = await import('../src/bot.js');
+  assert.deepEqual(monthRange(2, new Date('2028-06-01T00:00:00Z')), { fromDate: '01/02/2028', toDate: '29/02/2028', label: 'Tháng 2/2028' });
+  assert.deepEqual(monthRange(10, new Date('2026-11-15T00:00:00Z')), { fromDate: '01/10/2026', toDate: '31/10/2026', label: 'Tháng 10/2026' });
 });
