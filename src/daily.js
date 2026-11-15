@@ -32,7 +32,7 @@ const verified = (msg) => msg.includes('✔ Đã đối chiếu'); // các báo 
 /**
  * @param ds  { cash, bank, sales, salesKh, ar, ap, stock } — dataset đã đọc (hoặc {error})
  */
-export function buildDailyMessage({ date, now = new Date(), targetDb, ds, updatedAt }) {
+export function buildDailyMessage({ date, now = new Date(), targetDb, ds, updatedAt, ytdTop = 10 }) {
   const vn = new Date(now.getTime() + 7 * 3600e3);
   const period = { fromDate: date, toDate: date };
   const L = [
@@ -84,6 +84,24 @@ export function buildDailyMessage({ date, now = new Date(), targetDb, ds, update
     if (sk === 'ok' && ds.salesKh.rows.length) checks.push(['Doanh số khách hàng', verified(buildSalesMessage({ by: 'customer', label: '', period, dataset: ds.salesKh }))]);
     if (ss === 'ok' && sk === 'ok' && Math.abs(sum(ds.sales.rows, 'doanh_thu') - sum(ds.salesKh.rows, 'doanh_thu')) > 1) {
       alerts.push(`Doanh thu theo mặt hàng (${vnd(sum(ds.sales.rows, 'doanh_thu'))}) khác theo khách hàng (${vnd(sum(ds.salesKh.rows, 'doanh_thu'))})`);
+    }
+  }
+
+  // ---- 📈 Luỹ kế năm theo mặt hàng ----
+  if (ds.salesYtd !== undefined) {
+    const yst = state(ds.salesYtd);
+    const year = date.slice(-4);
+    L.push('', `📈 <b>LUỸ KẾ NĂM ${year}</b> <i>(01/01 – ${date.slice(0, 5)})</i>`);
+    if (yst !== 'ok' || !ds.salesYtd.rows.length) L.push(`   ${yst === 'error' ? `⚠️ ${errText(ds.salesYtd)}` : 'Chưa có doanh số trong năm.'}`);
+    else {
+      const rows = ds.salesYtd.rows;
+      const dt = sum(rows, 'doanh_thu'), lg = sum(rows, 'lai_gop');
+      L.push(`   Doanh thu thuần ${big(dt)}`);
+      L.push(`   Doanh số ${vnd(sum(rows, 'doanh_so'))} · lãi gộp ${vnd(lg)} (${pct(lg, dt)})`);
+      L.push(`   ${rows.length} mặt hàng có phát sinh`);
+      L.push(`   <u>Top ${Math.min(ytdTop, rows.length)} mặt hàng cả năm</u>`);
+      [...rows].sort((x, y) => y.doanh_thu - x.doanh_thu).slice(0, ytdTop).forEach((r, i) => L.push(`   ${MEDALS[i] ?? `${i + 1}.`} <code>${escapeHtml(r.ma_hang)}</code> ${escapeHtml(cut(r.ten_hang, 40))} — ${short(r.doanh_thu)} (${pct(r.doanh_thu, dt)})`));
+      checks.push(['Luỹ kế năm', verified(buildSalesMessage({ label: '', period: { fromDate: `01/01/${year}`, toDate: date }, dataset: ds.salesYtd }))]);
     }
   }
 

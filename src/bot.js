@@ -389,8 +389,15 @@ export async function handleDaily(config, tg, { fresh = false, headed, date } = 
   await progress.start();
   try {
     const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s === 'export' ? 'exportDaily' : s), period, sourceIds: ids, fileKeys, vars: { groups: '' } });
-    await progress.stage('send');
     const ds = Object.fromEntries(Object.entries(DAILY_SOURCES).map(([k, id]) => [k, data.datasets[id]]));
+    // luỹ kế năm theo mặt hàng: xuất thêm doanh số 01/01 → hôm nay (dùng lại phiên AMIS đang mở)
+    const ytdFrom = `01/01/${today.slice(-4)}`;
+    const ytdKey = `doanh_so__${ytdFrom.replace(/\//g, '-')}_${today.replace(/\//g, '-')}`;
+    const ytdReuse = !fresh && fileAgeMinutes(config, ytdKey) <= config.bot.maxDataAgeMinutes;
+    const ytd = await collect(config, { download: !ytdReuse, headed, tg, log: () => {}, period: { fromDate: ytdFrom, toDate: today, today }, sourceIds: ['doanh_so'], fileKeys: { doanh_so: ytdKey }, vars: { groups: '' } })
+      .catch((e) => ({ datasets: { doanh_so: { error: e.message } } }));
+    ds.salesYtd = ytd.datasets.doanh_so;
+    await progress.stage('send');
     const files = Object.values(data.datasets).map((d) => d.file).filter(Boolean);
     const updatedAt = files.length ? vnTime(Math.min(...files.map((f) => fs.statSync(f).mtimeMs))) : '';
     const failed = Object.values(ds).some((d) => !d || (d.error && !d.error.includes('NO_DATA')) || d.missing);

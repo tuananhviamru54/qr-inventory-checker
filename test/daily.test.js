@@ -43,3 +43,12 @@ test('lịch 17:30 giờ Việt Nam', () => {
   assert.equal(msUntilVn('17:30', Date.parse('2026-11-15T10:00:00Z')), 30 * 60000); // 17:00 VN → còn 30 phút
   assert.equal(msUntilVn('17:30', Date.parse('2026-11-15T11:00:00Z')), (24 * 60 - 30) * 60000); // 18:00 VN → mai
 });
+
+test('báo cáo cuối ngày: luỹ kế năm theo mặt hàng', () => {
+  const r = (ma, dt) => ({ ma_hang: ma, ten_hang: `Hàng ${ma}`, sl_ban: 1, doanh_so: dt, chiet_khau: 0, gia_tri_tra: 0, giam_gia: 0, doanh_thu: dt, tien_von: dt / 2, lai_gop: dt / 2 });
+  const msg = buildDailyMessage({ date: '16/11/2026', ds: { salesYtd: { missingFields: [], rows: [r('A', 100), r('B', 300)], totals: null } } });
+  assert.match(msg, /LUỸ KẾ NĂM 2026<\/b> <i>\(01\/01 – 16\/11\)/);
+  assert.match(msg, /Doanh thu thuần <b>400 đ/);
+  assert.ok(msg.indexOf('Hàng B') < msg.indexOf('Hàng A'));
+  assert.match(msg, /Hàng B — 300 đ \(75%\)/);
+});

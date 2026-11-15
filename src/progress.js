@@ -5,7 +5,7 @@ import fs from 'node:fs';
 export const STAGE_LABELS = {
   login: 'Đăng nhập MISA AMIS (có giám sát)',
   export: 'Xuất báo cáo từ AMIS',
-  exportDaily: 'Xuất 7 báo cáo từ AMIS (tiền, bán hàng, công nợ, tồn kho)',
+  exportDaily: 'Xuất 8 báo cáo từ AMIS (tiền, bán hàng, luỹ kế năm, công nợ, tồn kho)',
   reuse: 'Dùng lại dữ liệu vừa xuất',
   check: 'Đọc file và kiểm tra chéo',
   answer: 'Trợ lý soạn câu trả lời',
@@ -13,7 +13,7 @@ export const STAGE_LABELS = {
   review: 'Kế toán trưởng kiểm soát',
   send: 'Gửi kết quả',
 };
-const DEFAULT_SECONDS = { login: 12, export: 35, exportDaily: 200, reuse: 1, check: 2, answer: 25, expert: 30, review: 25, send: 2 };
+const DEFAULT_SECONDS = { login: 12, export: 35, exportDaily: 230, reuse: 1, check: 2, answer: 25, expert: 30, review: 25, send: 2 };
 
 const BAR = 14;
 const SPINNER = ['🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚', '🕛'];
