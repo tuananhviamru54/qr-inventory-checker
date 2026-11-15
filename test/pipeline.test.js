@@ -356,15 +356,15 @@ test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, 
     await handleUpdate(config, tg, '/start', { state: { awaitingRange: null } });
     const start = sentBodies(mock).at(-1);
     assert.deepEqual(start.reply_markup.keyboard.flat().map((b) => b.text),
-      ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Báo cáo doanh số', '🧾 Công nợ khách hàng', '🏭 Công nợ nhà cung cấp', '❓ Hướng dẫn']);
+      ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Doanh số theo mặt hàng', '👥 Doanh số theo khách hàng', '🧾 Công nợ khách hàng', '🏭 Công nợ nhà cung cấp', '❓ Hướng dẫn']);
     assert.equal(start.reply_markup.is_persistent, true);
-    assert.deepEqual(MENU.keyboard.flat().length, 6);
-    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'tonkho', 'baocao', 'doanhso', 'congnokh', 'congnoncc', 'capnhatnhom', 'trogiup']);
+    assert.deepEqual(MENU.keyboard.flat().length, 7);
+    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'tonkho', 'baocao', 'doanhso', 'doanhsokh', 'congnokh', 'congnoncc', 'capnhatnhom', 'trogiup']);
     await tg.setCommands(COMMANDS);
     assert.ok(mock.state.telegram.some((c) => c.method === 'setMyCommands'));
 
     // bấm nút "Báo cáo doanh số" → bảng chọn kỳ với đủ 6 lựa chọn
-    await handleUpdate(config, tg, '💰 Báo cáo doanh số', { state: { awaitingRange: null } });
+    await handleUpdate(config, tg, '💰 Doanh số theo mặt hàng', { state: { awaitingRange: null } });
     const picker = sentBodies(mock).at(-1);
     assert.deepEqual(picker.reply_markup.inline_keyboard.flat().map((b) => [b.text, b.callback_data]), [
       ['Hôm nay', 's:today'], ['Hôm qua', 's:yesterday'], ['Tuần này', 's:thisWeek'],
@@ -394,7 +394,7 @@ test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối ch
 
     await handleCallbackData(config, tg, 's:thisMonth', opts);
     let m = last();
-    assert.match(m.text, /💰 <b>Báo cáo doanh số — Tháng này<\/b>/);
+    assert.match(m.text, /💰 <b>Doanh số theo mặt hàng — Tháng này<\/b>/);
     assert.match(m.text, /Doanh số bán<\/b>: 7\.098\.100 đ \(≈ 7,1 triệu\)/);
     assert.match(m.text, /− Chiết khấu: 546\.345 đ/);
     assert.match(m.text, /Doanh thu thuần<\/b>: 6\.551\.755 đ \(≈ 6,6 triệu\)/);
@@ -408,7 +408,7 @@ test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối ch
 
     for (const [data, label] of [['s:today', 'Hôm nay'], ['s:yesterday', 'Hôm qua'], ['s:thisWeek', 'Tuần này'], ['s:lastMonth', 'Tháng trước']]) {
       await handleCallbackData(config, tg, data, opts);
-      assert.match(last().text, new RegExp(`Báo cáo doanh số — ${label}`));
+      assert.match(last().text, new RegExp(`Doanh số theo mặt hàng — ${label}`));
     }
 
     // tùy chọn ngày: bấm → bot hỏi → gõ sai thì báo lỗi và vẫn chờ → gõ đúng thì ra báo cáo
@@ -418,7 +418,7 @@ test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối ch
     assert.match(last().text, /không tồn tại trong lịch/);
     assert.ok(opts.state.awaitingRange);
     await handleUpdate(config, tg, '01/11/2026 - 10/11/2026', opts);
-    assert.match(last().text, /Báo cáo doanh số — 01\/11\/2026 – 10\/11\/2026/);
+    assert.match(last().text, /Doanh số theo mặt hàng — 01\/11\/2026 – 10\/11\/2026/);
     assert.equal(opts.state.awaitingRange, null);
     await handleCallbackData(config, tg, 's:custom', opts);
     await handleUpdate(config, tg, 'huỷ', opts);
@@ -426,9 +426,9 @@ test('báo cáo doanh số: các kỳ, tùy chọn ngày, gõ tự do, đối ch
 
     // gõ tự do và lệnh có tham số
     await handleUpdate(config, tg, 'doanh thu tuần này thế nào', opts);
-    assert.match(last().text, /Báo cáo doanh số — Tuần này/);
+    assert.match(last().text, /Doanh số theo mặt hàng — Tuần này/);
     await handleUpdate(config, tg, '/doanhso hôm qua', opts);
-    assert.match(last().text, /Báo cáo doanh số — Hôm qua/);
+    assert.match(last().text, /Doanh số theo mặt hàng — Hôm qua/);
     await handleUpdate(config, tg, 'doanh số', opts);
     assert.ok(last().reply_markup.inline_keyboard.length === 3); // hỏi lại kỳ
     assert.equal(parseSalesIntent('tồn kho còn bao nhiêu'), null);
@@ -477,7 +477,7 @@ test('lịch chọn ngày bằng nút bấm: chọn đầu–cuối, 1 ngày, ch
     await press('c:t', opts);
     await press(day(1), opts);                                                  // chọn lại đúng ngày 1 làm ngày kết thúc → 1 ngày
     let m = last();
-    assert.match(m.text, /Báo cáo doanh số — 01\/\d\d\/\d{4}<\/b>/);
+    assert.match(m.text, /Doanh số theo mặt hàng — 01\/\d\d\/\d{4}<\/b>/);
     assert.match(edits().at(-1).text, /Đã chọn: <b>01\/\d\d\/\d{4}<\/b> — đang lập báo cáo/);
     assert.deepEqual(edits().at(-1).reply_markup.inline_keyboard, []);          // lịch đã gỡ khỏi tin
     assert.equal(opts.state.cal, null);
@@ -489,7 +489,7 @@ test('lịch chọn ngày bằng nút bấm: chọn đầu–cuối, 1 ngày, ch
     assert.equal(opts.state.cal.from, null);
     await press(day(1), opts);
     await press('c:o', opts);
-    assert.match(last().text, /Báo cáo doanh số — 01\//);
+    assert.match(last().text, /Doanh số theo mặt hàng — 01\//);
     await press('s:custom', opts);
     await press(`c:d:${todayNum + 1}`, opts);                                  // ngày tương lai: bỏ qua
     assert.equal(opts.state.cal.from, null);
@@ -536,7 +536,7 @@ test('chọn Nhóm VTHH trước khi lập báo cáo doanh số: chọn nhiều 
     await press(`g:t:${idx('NVL')}`);
     await press('g:ok');
     let m = last();
-    assert.match(m.text, /Báo cáo doanh số — Tháng này/);
+    assert.match(m.text, /Doanh số theo mặt hàng — Tháng này/);
     assert.match(m.text, /📦 Nhóm VTHH: PENCO, NVL/);
     assert.match(edits().at(-1).text, /Nhóm VTHH: <b>PENCO, NVL<\/b> — đang lập báo cáo/);
     assert.equal(opts.state.pick, null);

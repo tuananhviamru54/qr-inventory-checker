@@ -48,12 +48,13 @@ Chạy `npm run bot`: khi khởi động bot đăng ký menu lệnh của Telegr
 |---|---|
 | 🔄 Lấy báo cáo mới nhất | Vào AMIS lấy dữ liệu mới (làm mới) rồi gửi báo cáo đối chiếu tồn kho (= `/moi`) |
 | 📊 Báo cáo tồn kho | Chọn kỳ (như doanh số) rồi chọn **Nhóm VTHH**: tồn đầu kỳ, nhập, xuất, cuối kỳ (số lượng và giá trị), tồn âm, top 10 theo giá trị, tự đối chiếu đầu kỳ + nhập − xuất = cuối kỳ (= `/tonkho`; báo cáo đối chiếu với kiểm kê vẫn là `/baocao`) |
-| 💰 Báo cáo doanh số | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** (= `/doanhso`) |
+| 💰 Doanh số theo mặt hàng | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** rồi chọn Nhóm VTHH (= `/doanhso`) |
+| 👥 Doanh số theo khách hàng | Cùng bảng chọn kỳ; lấy từ báo cáo *Tổng hợp bán hàng theo khách hàng*: doanh số, chiết khấu, trả lại, doanh thu thuần, lãi gộp của từng khách (= `/doanhsokh`) |
 | 🧾 Công nợ khách hàng | Chọn kỳ rồi xem công nợ **phải thu** (TK 131): dư đầu kỳ, bán chịu, khách đã trả, dư cuối kỳ, top khách còn nợ, khách dư bên Có; tự đối chiếu với dòng "Tổng cộng" của AMIS (= `/congnokh`) |
 | 🏭 Công nợ nhà cung cấp | Tương tự cho công nợ **phải trả** (TK 331) (= `/congnoncc`) |
 | ❓ Hướng dẫn | Xem hướng dẫn (= `/trogiup`) |
 
-**Báo cáo doanh số** lấy từ báo cáo *Tổng hợp bán hàng theo mặt hàng* của AMIS: doanh số bán, chiết khấu, hàng trả lại,
+**Doanh số theo mặt hàng** lấy từ báo cáo *Tổng hợp bán hàng theo mặt hàng* của AMIS: doanh số bán, chiết khấu, hàng trả lại,
 giảm giá, **doanh thu thuần**, tiền vốn, lãi gộp, số lượng bán và top 10 mặt hàng theo doanh thu. Mọi con số do chương
 trình cộng từ file AMIS (không qua AI) và được đối chiếu với dòng "Tổng cộng" của chính AMIS (kèm kiểm tra doanh thu
 thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch thì báo ⚠️. Tuần tính từ thứ Hai đến hôm nay.

@@ -197,7 +197,7 @@
     },
     {
       "id": "doanh_so",
-      "name": "Doanh số bán hàng",
+      "name": "Doanh số theo mặt hàng",
       "type": "amis",
       "onDemand": true,
       "steps": [
@@ -356,6 +356,142 @@
         "prefix": "sme_ssbip_mscm2_p_iic_misa_code_id",
         "file": "data/nhom_vthh.json"
       }
+    },
+    {
+      "id": "doanh_so_kh",
+      "name": "Doanh số theo khách hàng",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "ma_kh"
+        ],
+        "fields": {
+          "ma_kh": {
+            "headers": [
+              "Mã khách hàng"
+            ],
+            "type": "text"
+          },
+          "ten_kh": {
+            "headers": [
+              "Tên khách hàng"
+            ],
+            "type": "text"
+          },
+          "doanh_so": {
+            "headers": [
+              "Doanh số bán"
+            ]
+          },
+          "chiet_khau": {
+            "headers": [
+              "Chiết khấu"
+            ]
+          },
+          "gia_tri_tra": {
+            "headers": [
+              "Giá trị trả lại"
+            ]
+          },
+          "giam_gia": {
+            "headers": [
+              "Giá trị giảm giá",
+              "Giảm giá"
+            ]
+          },
+          "doanh_thu": {
+            "headers": [
+              "Doanh thu thuần",
+              "Doanh thu"
+            ]
+          },
+          "tien_von": {
+            "headers": [
+              "Tiền vốn"
+            ]
+          },
+          "lai_gop": {
+            "headers": [
+              "Lãi gộp"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/SalesSummaryByCustomer"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "ensureChecked": "label:has-text('Chọn tất cả khách hàng')"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
     },
     {
       "id": "ton_kho_nhom",

@@ -13,15 +13,16 @@ function short(n) {
 const money = (n) => (short(n) ? `${vnd(n)} (${short(n)})` : vnd(n));
 const sum = (rows, f) => rows.reduce((s, r) => s + (Number(r[f]) || 0), 0);
 
-export function buildSalesMessage({ label, period, targetDb, dataset, updatedAt, groups = [], top = 10 }) {
-  const lines = [`💰 <b>Báo cáo doanh số — ${escapeHtml(label)}</b>`, `🗓 ${period.fromDate === period.toDate ? period.fromDate : `${period.fromDate} – ${period.toDate}`}${targetDb ? ` · 🗄 ${escapeHtml(targetDb)}` : ''}`];
-  lines.push(`📦 Nhóm VTHH: ${groups.length ? escapeHtml(groups.join(', ')) : 'tất cả nhóm'}`);
+export function buildSalesMessage({ label, period, targetDb, dataset, updatedAt, groups = [], top = 10, by = 'item' }) {
+  const cust = by === 'customer';
+  const lines = [`${cust ? '👥' : '💰'} <b>Doanh số theo ${cust ? 'khách hàng' : 'mặt hàng'} — ${escapeHtml(label)}</b>`, `🗓 ${period.fromDate === period.toDate ? period.fromDate : `${period.fromDate} – ${period.toDate}`}${targetDb ? ` · 🗄 ${escapeHtml(targetDb)}` : ''}`];
+  if (!cust) lines.push(`📦 Nhóm VTHH: ${groups.length ? escapeHtml(groups.join(', ')) : 'tất cả nhóm'}`);
   if (updatedAt) lines.push(`🕒 Số liệu AMIS lấy lúc ${updatedAt}`);
   lines.push('');
 
-  const missing = ['doanh_so', 'doanh_thu', 'sl_ban'].filter((f) => dataset.missingFields.includes(f));
+  const missing = ['doanh_so', 'doanh_thu', ...(cust ? [] : ['sl_ban'])].filter((f) => dataset.missingFields.includes(f));
   if (missing.length) {
-    lines.push(`⚠️ Báo cáo AMIS thiếu cột (${escapeHtml(missing.join(', '))}) nên chưa tính được doanh số. Có thể MISA đã đổi tên cột — kiểm tra "headers" của nguồn doanh_so trong config.json.`);
+    lines.push(`⚠️ Báo cáo AMIS thiếu cột (${escapeHtml(missing.join(', '))}) nên chưa tính được doanh số. Có thể MISA đã đổi tên cột — kiểm tra "headers" của nguồn ${cust ? 'doanh_so_kh' : 'doanh_so'} trong config.json.`);
     return lines.join('\n');
   }
   const rows = dataset.rows;
@@ -36,13 +37,17 @@ export function buildSalesMessage({ label, period, targetDb, dataset, updatedAt,
   if (!dataset.missingFields.includes('tien_von') && !dataset.missingFields.includes('lai_gop') && t.doanh_thu) {
     lines.push(`Tiền vốn: ${vnd(t.tien_von)} · Lãi gộp: ${vnd(t.lai_gop)} (${((t.lai_gop / t.doanh_thu) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%)`);
   }
-  lines.push(`Số lượng bán: ${fmtNumber(Math.round(t.sl_ban * 1e4) / 1e4)} · ${rows.length} mặt hàng có phát sinh`);
+  lines.push(cust ? `${rows.length} khách hàng có phát sinh` : `Số lượng bán: ${fmtNumber(Math.round(t.sl_ban * 1e4) / 1e4)} · ${rows.length} mặt hàng có phát sinh`);
 
-  const best = [...rows].sort((a, b) => b.doanh_thu - a.doanh_thu).slice(0, top);
-  lines.push('', `<b>Top ${best.length} mặt hàng theo doanh thu thuần</b>`);
+  // theo khách hàng: liệt kê đủ mọi khách có phát sinh; theo mặt hàng: top
+  const sorted = [...rows].sort((a, b) => b.doanh_thu - a.doanh_thu);
+  const best = cust ? sorted : sorted.slice(0, top);
+  lines.push('', cust ? `<b>${best.length} khách hàng theo doanh thu thuần</b>` : `<b>Top ${best.length} mặt hàng theo doanh thu thuần</b>`);
   best.forEach((r, i) => {
     const pct = t.doanh_thu ? ` (${((r.doanh_thu / t.doanh_thu) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%)` : '';
-    lines.push(`${i + 1}. <code>${escapeHtml(r.ma_hang)}</code> ${escapeHtml(r.ten_hang ?? '')} — SL ${fmtNumber(r.sl_ban)} — ${vnd(r.doanh_thu)}${pct}`);
+    lines.push(cust
+      ? `${i + 1}. <code>${escapeHtml(r.ma_kh)}</code> ${escapeHtml((r.ten_kh ?? '').trim())} — ${vnd(r.doanh_thu)}${pct}${r.lai_gop != null && r.doanh_thu ? ` · lãi gộp ${vnd(r.lai_gop)}` : ''}`
+      : `${i + 1}. <code>${escapeHtml(r.ma_hang)}</code> ${escapeHtml(r.ten_hang ?? '')} — SL ${fmtNumber(r.sl_ban)} — ${vnd(r.doanh_thu)}${pct}`);
   });
 
   // Tự đối chiếu để người đọc biết con số đáng tin
