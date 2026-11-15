@@ -1298,6 +1298,118 @@
           }
         }
       ]
+    },
+    {
+      "id": "can_doi_tk",
+      "name": "Bảng cân đối tài khoản (F01)",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "so_tk"
+        ],
+        "fields": {
+          "so_tk": {
+            "headers": [
+              "Số hiệu tài khoản",
+              "Số tài khoản",
+              "Tài khoản"
+            ],
+            "type": "text"
+          },
+          "ten_tk": {
+            "headers": [
+              "Tên tài khoản"
+            ],
+            "type": "text"
+          },
+          "ps_no": {
+            "headers": [
+              "Số phát sinh trong kỳ Nợ",
+              "Phát sinh trong kỳ Nợ",
+              "Phát sinh Nợ"
+            ]
+          },
+          "ps_co": {
+            "headers": [
+              "Số phát sinh trong kỳ Có",
+              "Phát sinh trong kỳ Có",
+              "Phát sinh Có"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/GLF01_DN"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Phát sinh trong kỳ",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
     }
   ],
   "checks": [

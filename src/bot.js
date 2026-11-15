@@ -14,6 +14,7 @@ import { buildDebtMessage } from './debt.js';
 import { buildCashMessage } from './cash.js';
 import { buildDailyMessage } from './daily.js';
 import { buildIncomeMessage } from './income.js';
+import { buildCostMessage, summarizeCost, previousRange } from './cost.js';
 import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
@@ -32,9 +33,10 @@ const BTN = {
   cash: '💵 Quỹ tiền',
   home: '🏠 Trang chủ',
   fin: '📑 Kết quả KD',
+  cost: '💸 Chi phí',
   help: '❓ Hướng dẫn',
 };
-const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup', [BTN.home]: '/start', [BTN.fin]: '/ketqua' };
+const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup', [BTN.home]: '/start', [BTN.fin]: '/ketqua', [BTN.cost]: '/chiphi' };
 
 /** Bàn phím cố định dưới ô nhập tin (luôn hiện cho tới khi bị gỡ). */
 export const MENU = {
@@ -44,8 +46,8 @@ export const MENU = {
 };
 
 /** Bàn phím riêng của chủ bot trong chat riêng: thêm nút Kết quả kinh doanh. */
-export const MENU_OWNER = { ...MENU, keyboard: [...MENU.keyboard.slice(0, -1), [{ text: BTN.fin }], MENU.keyboard.at(-1)] };
-export const FIN_DENIED = '🔒 Báo cáo kết quả kinh doanh chỉ dành cho chủ bot và chỉ xem trong chat riêng với bot.';
+export const MENU_OWNER = { ...MENU, keyboard: [...MENU.keyboard.slice(0, -1), [{ text: BTN.fin }, { text: BTN.cost }], MENU.keyboard.at(-1)] };
+export const FIN_DENIED = '🔒 Báo cáo tài chính (kết quả kinh doanh, chi phí) chỉ dành cho chủ bot và chỉ xem trong chat riêng với bot.';
 
 export const COMMANDS = [
   { command: 'start', description: 'Trang chủ: logo và các báo cáo' },
@@ -59,14 +61,15 @@ export const COMMANDS = [
   { command: 'congnoncc', description: 'Công nợ nhà cung cấp (phải trả, TK 331)' },
   { command: 'quytien', description: 'Quỹ tiền: tiền mặt (TK 111) + tiền gửi ngân hàng (TK 112)' },
   { command: 'ketqua', description: 'Kết quả kinh doanh B02 (chỉ chủ bot, chat riêng)' },
+  { command: 'chiphi', description: 'Chi phí kỳ này so với kỳ trước (chỉ chủ bot, chat riêng)' },
   { command: 'capnhatnhom', description: 'Cập nhật danh sách Nhóm VTHH từ AMIS' },
   { command: 'trogiup', description: 'Hướng dẫn sử dụng' },
 ];
 
 /** Bàn phím chọn kỳ: tiền tố s: cho báo cáo doanh số, k: cho báo cáo tồn kho. */
-const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q', cash: 'm', fin: 'f' };
+const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q', cash: 'm', fin: 'f', cost: 'y' };
 const PREFIX_MODE = Object.fromEntries(Object.entries(MODE_PREFIX).map(([m, p]) => [p, m]));
-const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w', cash: 'n', fin: 'e' };
+const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w', cash: 'n', fin: 'e', cost: 'o' };
 const REFRESH_MODE = Object.fromEntries(Object.entries(REFRESH_PREFIX).map(([m, p]) => [p, m]));
 /** Kỳ "Tháng N" của năm hiện tại (giờ VN). */
 export function monthRange(mm, now = new Date()) {
@@ -75,20 +78,20 @@ export function monthRange(mm, now = new Date()) {
   const p2 = (n) => String(n).padStart(2, '0');
   return { fromDate: `01/${p2(mm)}/${y}`, toDate: `${p2(last)}/${p2(mm)}/${y}`, label: `Tháng ${mm}/${y}` };
 }
-const financeKeyboard = (now = new Date()) => {
+const financeKeyboard = (p = 'f', now = new Date()) => {
   const cur = +resolvePeriod('today', now).today.split('/')[1];
-  const months = Array.from({ length: cur }, (_, i) => ({ text: `Tháng ${i + 1}`, callback_data: `f:mon:${i + 1}` }));
+  const months = Array.from({ length: cur }, (_, i) => ({ text: `Tháng ${i + 1}`, callback_data: `${p}:mon:${i + 1}` }));
   const rows = [];
   for (let i = 0; i < months.length; i += 4) rows.push(months.slice(i, i + 4));
   return { inline_keyboard: [
     ...rows,
-    [{ text: 'Quý này', callback_data: 'f:thisQuarter' }, { text: 'Quý trước', callback_data: 'f:lastQuarter' }],
-    [{ text: 'Năm nay', callback_data: 'f:thisYear' }, { text: 'Năm trước', callback_data: 'f:lastYear' }],
-    [{ text: '📅 Tùy chọn ngày', callback_data: 'f:custom' }],
+    [{ text: 'Quý này', callback_data: `${p}:thisQuarter` }, { text: 'Quý trước', callback_data: `${p}:lastQuarter` }],
+    [{ text: 'Năm nay', callback_data: `${p}:thisYear` }, { text: 'Năm trước', callback_data: `${p}:lastYear` }],
+    [{ text: '📅 Tùy chọn ngày', callback_data: `${p}:custom` }],
   ] };
 };
 const periodKeyboard = (mode = 'sales') => {
-  if (mode === 'fin') return financeKeyboard();
+  if (mode === 'fin' || mode === 'cost') return financeKeyboard(MODE_PREFIX[mode]);
   const p = MODE_PREFIX[mode] ?? 's';
   return { inline_keyboard: [
     [{ text: 'Hôm nay', callback_data: `${p}:today` }, { text: 'Hôm qua', callback_data: `${p}:yesterday` }],
@@ -132,11 +135,11 @@ export function dashboardCaption(config, now = new Date()) {
 }
 /** Ô bấm trang chủ; chat riêng của chủ bot có thêm ô Kết quả kinh doanh (🔒). */
 export const dashboardKeyboard = (ownerPrivate = false) => (ownerPrivate
-  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả kinh doanh 🔒', callback_data: 'f:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3)] }
+  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả KD 🔒', callback_data: 'f:menu' }, { text: '💸 Chi phí 🔒', callback_data: 'y:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3)] }
   : DASHBOARD_KEYBOARD);
 export async function sendDashboard(config, tg, { ownerPrivate = false } = {}) {
   const kb = dashboardKeyboard(ownerPrivate);
-  const caption = dashboardCaption(config) + (ownerPrivate ? '\n🔒 <i>Riêng bạn: Kết quả kinh doanh (B02)</i>' : '');
+  const caption = dashboardCaption(config) + (ownerPrivate ? '\n🔒 <i>Riêng bạn: Kết quả kinh doanh · Chi phí</i>' : '');
   try {
     await tg.sendFile(LOGO, caption, 'sendPhoto', { html: true, reply_markup: kb });
   } catch (e) {
@@ -240,7 +243,7 @@ const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi
 export async function beginSales(config, tg, range, opts = {}) {
   const state = opts.state ?? defaultState;
   const mode = opts.mode ?? state.mode ?? 'sales';
-  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin'].includes(mode) ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
+  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin', 'cost'].includes(mode) ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
   if (!list.length) return runReport(config, tg, mode, range, opts); // chưa có danh sách nhóm → lấy tất cả
   state.pick = { range, list, selected: new Set(), mode };
   await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
@@ -312,11 +315,11 @@ export function parseSalesIntent(text, now = new Date()) {
 
 async function sendPeriodPicker(tg, note = '', mode = 'sales', state = defaultState) {
   state.mode = mode;
-  const head = { stock: '📊 <b>Báo cáo tồn kho</b> (đầu kỳ, nhập, xuất, cuối kỳ, giá trị)', ar: '🧾 <b>Công nợ khách hàng</b> (phải thu, TK 131)', ap: '🏭 <b>Công nợ nhà cung cấp</b> (phải trả, TK 331)', salesKh: '👥 <b>Doanh số theo khách hàng</b> (kèm doanh thu thuần, lãi gộp)', cash: '💵 <b>Quỹ tiền</b> (tiền mặt + tiền gửi ngân hàng)', fin: '📑 <b>Kết quả hoạt động kinh doanh</b> (B02 · kỳ này so với kỳ trước) 🔒' }[mode] ?? '💰 <b>Doanh số theo mặt hàng</b> (kèm doanh thu thuần, lãi gộp)';
+  const head = { stock: '📊 <b>Báo cáo tồn kho</b> (đầu kỳ, nhập, xuất, cuối kỳ, giá trị)', ar: '🧾 <b>Công nợ khách hàng</b> (phải thu, TK 131)', ap: '🏭 <b>Công nợ nhà cung cấp</b> (phải trả, TK 331)', salesKh: '👥 <b>Doanh số theo khách hàng</b> (kèm doanh thu thuần, lãi gộp)', cash: '💵 <b>Quỹ tiền</b> (tiền mặt + tiền gửi ngân hàng)', fin: '📑 <b>Kết quả hoạt động kinh doanh</b> (B02 · kỳ này so với kỳ trước) 🔒', cost: '💸 <b>Chi phí</b> (giá vốn, quản lý, tài chính, khác · kỳ này so với kỳ trước) 🔒' }[mode] ?? '💰 <b>Doanh số theo mặt hàng</b> (kèm doanh thu thuần, lãi gộp)';
   await tg.sendMessage(`${note ? `${note}\n\n` : ''}${head}\nChọn kỳ cần xem:`, { reply_markup: periodKeyboard(mode) });
 }
 
-const runReport = (config, tg, mode, range, opts) => (mode === 'fin' ? handleIncome(config, tg, range, opts) : mode === 'cash' ? handleCash(config, tg, range, opts) : mode === 'stock' ? handleStock(config, tg, range, opts) : mode === 'ar' || mode === 'ap' ? handleDebt(config, tg, mode, range, opts) : handleSales(config, tg, range, { ...opts, by: mode === 'salesKh' ? 'customer' : 'item' }));
+const runReport = (config, tg, mode, range, opts) => (mode === 'cost' ? handleCost(config, tg, range, opts) : mode === 'fin' ? handleIncome(config, tg, range, opts) : mode === 'cash' ? handleCash(config, tg, range, opts) : mode === 'stock' ? handleStock(config, tg, range, opts) : mode === 'ar' || mode === 'ap' ? handleDebt(config, tg, mode, range, opts) : handleSales(config, tg, range, { ...opts, by: mode === 'salesKh' ? 'customer' : 'item' }));
 
 const refreshButton = (config, range, groups, prefix) => `${prefix}:${ddmmyyyy(range.fromDate)}:${ddmmyyyy(range.toDate)}${groups.length ? `:${groups.map((c) => loadGroups(config).findIndex((g) => g.code === c)).filter((i) => i >= 0).join('-')}` : ''}`;
 
@@ -494,6 +497,44 @@ export async function handleIncome(config, tg, range, { fresh = false, headed, o
   }
 }
 
+/** Chi phí: CHỈ chủ bot, CHỈ chat riêng. Xuất Bảng cân đối tài khoản cho kỳ này và kỳ trước (cùng 1 phiên AMIS). */
+export async function handleCost(config, tg, range, { fresh = false, headed, ownerPrivate = false } = {}) {
+  if (!ownerPrivate || String(tg.chatId) !== String(config.secrets.telegramChatId)) { await tg.sendMessage(FIN_DENIED); return { message: null }; }
+  const today = resolvePeriod('today').today;
+  const prevR = previousRange(range.fromDate, range.toDate);
+  const key = (r) => `can_doi_tk__${r.fromDate.replace(/\//g, '-')}_${r.toDate.replace(/\//g, '-')}`;
+  const need = (r) => fresh || fileAgeMinutes(config, key(r)) > config.bot.maxDataAgeMinutes;
+  const reuse = !need(range) && !need(prevR);
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'send'];
+  const progress = new Progress(tg, { title: `Đang lập báo cáo chi phí — ${range.label}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  await progress.start();
+  try {
+    const get = (r, stage) => collect(config, { download: need(r), headed, tg, log: () => {}, onStage: stage ? (s) => progress.stage(s) : () => {}, period: { ...r, today }, sourceIds: ['can_doi_tk'], fileKeys: { can_doi_tk: key(r) } });
+    const a = await get(range, true);
+    const b = await get(prevR, false).catch(() => null);
+    await progress.stage('send');
+    const ds = a.datasets.can_doi_tk;
+    if (ds.error || ds.missing) {
+      await tg.sendMessage(`⚠️ <b>Không lấy được báo cáo chi phí — ${escapeHtml(range.label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
+      await progress.finish(false);
+      return { message: null, failed: true };
+    }
+    const pd = b?.datasets.can_doi_tk;
+    const prev = pd && !pd.error && !pd.missing ? summarizeCost(pd) : null;
+    const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
+    const message = [buildCostMessage({ label: range.label, period: range, prevPeriod: prevR, targetDb: config.secrets.targetDb, cur: summarizeCost(ds), prev, updatedAt }), supervisionSection(a.supervision, a.blocked)].filter(Boolean).join('\n\n');
+    await tg.sendMessage(message, { reply_markup: { inline_keyboard: [[
+      { text: '🔄 Làm mới số liệu này', callback_data: refreshButton(config, range, [], REFRESH_PREFIX.cost) },
+      { text: '📅 Chọn kỳ khác', callback_data: `${MODE_PREFIX.cost}:menu` },
+    ]] } });
+    await progress.finish(true);
+    return { message };
+  } catch (e) {
+    await progress.finish(false);
+    throw e;
+  }
+}
+
 export async function handleStock(config, tg, range, { fresh = false, headed, groups = [] } = {}) {
   const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
   const fileKey = `ton_kho__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}${groups.length ? `__${groupsKey(groups)}` : ''}`;
@@ -591,7 +632,7 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
 export async function handleCallbackData(config, tg, data, opts = {}) {
   const state = opts.state ?? defaultState;
   const [kind, a, b, c] = String(data).split(':');
-  if ((kind === 'f' || kind === 'e') && !opts.ownerPrivate) return tg.sendMessage(FIN_DENIED);
+  if (['f', 'e', 'y', 'o'].includes(kind) && !opts.ownerPrivate) return tg.sendMessage(FIN_DENIED);
   if (PREFIX_MODE[kind]) {
     const mode = PREFIX_MODE[kind];
     if (a === 'menu') return sendPeriodPicker(tg, '', mode, state);
@@ -742,10 +783,11 @@ export async function handleUpdate(config, tg, text, opts = {}) {
   }
 
   if (cmd === '/start') { await sendDashboard(config, tg, { ownerPrivate: opts.ownerPrivate }); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU }); }
-  if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config) + (opts.ownerPrivate ? '\n\n🔒 Riêng bạn: 📑 Kết quả KD (/ketqua) — báo cáo kết quả kinh doanh B02, kỳ này so với kỳ trước.' : ''), { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU });
+  if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config) + (opts.ownerPrivate ? '\n\n🔒 Riêng bạn: 📑 Kết quả KD (/ketqua) — báo cáo B02; 💸 Chi phí (/chiphi) — chi phí theo tài khoản, lợi nhuận ước tính. Đều so kỳ này với kỳ trước.' : ''), { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);
   if (cmd === '/cuoingay') return handleDaily(config, tg, { ...opts, fresh: true });
+  if (cmd === '/chiphi') return opts.ownerPrivate ? sendPeriodPicker(tg, '', 'cost', state) : tg.sendMessage(FIN_DENIED);
   if (cmd === '/ketqua') return opts.ownerPrivate ? sendPeriodPicker(tg, '', 'fin', state) : tg.sendMessage(FIN_DENIED);
   if (cmd === '/quytien') return sendPeriodPicker(tg, '', 'cash', state);
   if (cmd === '/congnoncc') return sendPeriodPicker(tg, '', 'ap', state);
@@ -912,7 +954,7 @@ export async function runBot(config, opts = {}) {
           const job = retries.get(cq.data.slice(2));
           if (job) dispatch(job.tg, job.work);
           else await t.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo.').catch(() => {});
-        } else if (/^[skpqhjmnruvwzfe]:/.test(cq.data ?? '')) {
+        } else if (/^[skpqhjmnruvwzfeyo]:/.test(cq.data ?? '')) {
           await answer();
           dispatch(t, () => handleCallbackData(config, t, cq.data, o));
         } else await t.handleCallback(cq).catch(() => {});

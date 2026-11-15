@@ -60,3 +60,36 @@ test('kỳ Tháng N: đúng ngày đầu/cuối tháng, kể cả tháng 2', asy
   assert.deepEqual(monthRange(2, new Date('2028-06-01T00:00:00Z')), { fromDate: '01/02/2028', toDate: '29/02/2028', label: 'Tháng 2/2028' });
   assert.deepEqual(monthRange(10, new Date('2026-11-15T00:00:00Z')), { fromDate: '01/10/2026', toDate: '31/10/2026', label: 'Tháng 10/2026' });
 });
+
+test('chi phí: tổng, từng tài khoản, so với kỳ trước, lợi nhuận ước tính; chỉ chủ bot', async () => {
+  const { buildCostMessage, summarizeCost, previousRange } = await import('../src/cost.js');
+  const acc = (rows) => ({ missingFields: [], rows: rows.map(([so_tk, ps_no, ps_co]) => ({ so_tk, ten_tk: '', ps_no, ps_co })) });
+  const cur = summarizeCost(acc([['511', 200, 1200], ['632', 600, 0], ['642', 100, 0], ['635', 0, 0], ['811', 50, 0], ['515', 0, 10]]));
+  const prev = summarizeCost(acc([['511', 0, 1000], ['632', 500, 0], ['642', 100, 0]]));
+  assert.equal(cur.total, 750);
+  const msg = buildCostMessage({ label: 'Tháng 10', period: { fromDate: '01/10/2026', toDate: '31/10/2026' }, prevPeriod: previousRange('01/10/2026', '31/10/2026'), cur, prev });
+  assert.match(msg, /so với 01\/09\/2026 – 30\/09\/2026/);
+  assert.match(msg, /TỔNG CHI PHÍ<\/b>: <b>750 đ<\/b>\n\s+kỳ trước 600 đ · ▲ \+25%/);
+  assert.match(msg, /Giá vốn hàng bán <code>632<\/code>: <b>600 đ<\/b> · 80% tổng/);
+  assert.match(msg, /Lợi nhuận ước tính<\/b>: <b>260 đ<\/b>/); // 1000 + 10 − 750
+  assert.match(msg, /chưa kết chuyển/);
+  assert.doesNotMatch(msg, /Chi phí bán hàng/); // = 0 cả 2 kỳ thì ẩn
+  // đã kết chuyển (có TK 911): chi phí lấy bên Nợ, không bị triệt tiêu
+  const closed = summarizeCost(acc([['632', 600, 600], ['911', 600, 1000], ['511', 1000, 1000]]));
+  assert.equal(closed.items['632'], 600);
+  assert.deepEqual(previousRange('01/11/2026', '15/11/2026'), { fromDate: '17/10/2026', toDate: '31/10/2026' });
+  assert.deepEqual(previousRange('01/01/2026', '31/03/2026'), { fromDate: '01/10/2025', toDate: '31/12/2025' });
+
+  const { handleUpdate, handleCallbackData, handleCost, dashboardKeyboard } = await import('../src/bot.js');
+  const sent = [];
+  const tg = (chatId) => ({ chatId, sendMessage: async (t, o) => { sent.push({ t, o }); return 1; } });
+  const config = { secrets: { telegramChatId: '42' }, bot: {} };
+  for (const call of [() => handleUpdate(config, tg('-100'), '/chiphi', { state: {} }), () => handleCallbackData(config, tg('-100'), 'y:mon:10', { state: {} }), () => handleCallbackData(config, tg('-100'), 'o:01102026:31102026', { state: {} }), () => handleCost(config, tg('-100'), { fromDate: '01/10/2026', toDate: '31/10/2026', label: 'x' }, { ownerPrivate: true })]) {
+    await call();
+    assert.match(sent.at(-1).t, /chỉ dành cho chủ bot/);
+  }
+  await handleUpdate(config, tg('42'), '/chiphi', { state: {}, ownerPrivate: true });
+  assert.ok(sent.at(-1).o.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'y:mon:1'));
+  assert.ok(dashboardKeyboard(true).inline_keyboard.flat().some((b) => b.callback_data === 'y:menu'));
+  assert.ok(!dashboardKeyboard(false).inline_keyboard.flat().some((b) => b.callback_data === 'y:menu'));
+});
