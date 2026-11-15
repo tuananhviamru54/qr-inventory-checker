@@ -69,7 +69,8 @@ test('trang tổng công ty: chi nhánh trước (Toàn công ty ở đầu), s�
   assert.match(caption, /^🏢 <b>CÔNG TY THE FIVE<\/b>/);
   assert.ok(caption.indexOf('Toàn công ty') < caption.indexOf('Kho A') && caption.indexOf('Kho B') < caption.indexOf('Kho Quảng Ninh'));
   const data = reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
-  assert.deepEqual(data, ['z:br:tf:0', 'z:br:tf:1', 'z:br:tf:2', 'z:br:qn:0']);
+  assert.deepEqual(data, ['z:br:all:0', 'z:br:tf:0', 'z:br:tf:1', 'z:br:tf:2', 'z:br:qn:0']);
+  assert.match(caption, /Toàn hệ thống<\/b> — The Five \+ Kho Quảng Ninh/);
   const a = scopeConfig(config, 'tf', 1), all = scopeConfig(config, 'tf', 0);
   assert.deepEqual([a.branchName, a.branchCodes], ['Kho A', ['A']]);
   assert.deepEqual(all.branchCodes, ['A', 'B']);
