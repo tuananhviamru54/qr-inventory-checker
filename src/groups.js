@@ -9,6 +9,12 @@ export const groupsFile = (config) => path.resolve(config.root, salesSource(conf
 
 /** @returns {{code:string,name:string,level:number,parent:string|null}[]} */
 export function loadGroups(config) {
+  // Toàn hệ thống: hợp danh sách nhóm của các sổ (theo mã; giữ thứ tự sổ đầu, nhóm chỉ có ở sổ sau được thêm vào cuối)
+  if (config.system?.length) {
+    const seen = new Map();
+    for (const sub of config.system) for (const g of loadGroups(sub)) if (!seen.has(g.code)) seen.set(g.code, { ...g, level: 0, parent: null });
+    return [...seen.values()];
+  }
   try {
     const list = JSON.parse(fs.readFileSync(groupsFile(config), 'utf8'));
     return Array.isArray(list) ? list.filter((g) => g?.code) : [];

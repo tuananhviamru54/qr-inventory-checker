@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { AmisSession } from './amis.js';
 import { readDataset } from './excel.js';
+import { loadGroups } from './groups.js';
 import { runChecks } from './checks.js';
 import { buildMessage, writeIssuesWorkbook, supervisionSection } from './report.js';
 import { buildFacts, focusRows } from './agents/facts.js';
@@ -81,11 +82,24 @@ export async function collect(config, opts = {}) {
  */
 async function collectSystem(config, opts) {
   const parts = [];
+  const notes = [];
+  const wanted = String(opts.vars?.groups ?? '').split('|').filter(Boolean);
   for (const sub of config.system) {
+    // lọc Nhóm VTHH: mỗi sổ chỉ nhận các nhóm nó có; sổ không có nhóm nào trong số đã chọn thì bỏ qua (đóng góp 0)
+    let vars = opts.vars;
+    if (wanted.length) {
+      const own = new Set(loadGroups(sub).map((g) => g.code));
+      const mine = wanted.filter((c) => own.has(c));
+      const missing = wanted.filter((c) => !own.has(c));
+      if (!mine.length) { notes.push(`${sub.tenantName} không có nhóm ${missing.join(', ')} → không tính`); continue; }
+      if (missing.length) notes.push(`${sub.tenantName} không có nhóm ${missing.join(', ')}`);
+      vars = { ...opts.vars, groups: mine.join('|') };
+    }
     const fileKeys = Object.fromEntries(Object.entries(opts.fileKeys ?? {}).map(([k, v]) => [k, v]));
     const reuse = opts.download === false || Object.values(fileKeys).every((k) => fileAgeOf(sub, k) <= (config.bot?.maxDataAgeMinutes ?? 30));
-    parts.push({ sub, data: await collectOne(sub, { ...opts, fileKeys, download: !reuse }) });
+    parts.push({ sub, data: await collectOne(sub, { ...opts, vars, fileKeys, download: !reuse }) });
   }
+  if (!parts.length) throw new Error(`Không sổ nào có nhóm đã chọn (${wanted.join(', ')})`);
   const datasets = {};
   for (const id of Object.keys(parts[0].data.datasets)) {
     const list = parts.map((p, i) => ({ ...p.data.datasets[id], _book: i, _name: p.sub.tenantName }));
@@ -99,7 +113,7 @@ async function collectSystem(config, opts) {
     datasets[id] = {
       id, name: ok[0].name, file: ok[0].file, files: ok.map((d) => d.file),
       rows: ok.flatMap((d) => d.rows.map((r) => ({ ...r, _book: d._book }))),
-      missingFields: [...new Set(ok.flatMap((d) => d.missingFields))], totals,
+      missingFields: [...new Set(ok.flatMap((d) => d.missingFields))], totals, scopeNotes: notes,
     };
   }
   const sups = parts.map((p) => p.data.supervision).filter(Boolean);

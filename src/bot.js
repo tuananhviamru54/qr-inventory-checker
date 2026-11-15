@@ -104,6 +104,8 @@ const periodKeyboard = (mode = 'sales') => {
 };
 
 /** Tên sổ dữ liệu hiển thị trên báo cáo, kèm chi nhánh nếu đang xem theo chi nhánh. */
+/** Ghi chú khi gộp nhiều sổ mà có sổ không có nhóm đã chọn. */
+const scopeNoteText = (ds) => (ds?.scopeNotes?.length ? ds.scopeNotes.map((n) => `ℹ️ ${escapeHtml(n)}`).join('\n') : '');
 const dbLabel = (config) => [config.secrets.targetDb, config.branchName && `📍 ${config.branchName}`].filter(Boolean).join(' · ');
 
 // ---- Trang chủ (dashboard): logo + các ô báo cáo bấm được ----
@@ -275,7 +277,7 @@ const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi
 export async function beginSales(config, tg, range, opts = {}) {
   const state = opts.state ?? defaultState;
   const mode = opts.mode ?? state.mode ?? 'sales';
-  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin', 'cost'].includes(mode) || config.system ? [] : loadGroups(config); // toàn hệ thống: mỗi sổ có danh sách nhóm riêng → không lọc nhóm // công nợ không có bước chọn Nhóm VTHH
+  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin', 'cost'].includes(mode) ? [] : loadGroups(config); // toàn hệ thống: hợp nhóm của các sổ // công nợ không có bước chọn Nhóm VTHH
   if (!list.length) return runReport(config, tg, mode, range, opts); // chưa có danh sách nhóm → lấy tất cả
   state.pick = { range, list, selected: new Set(), mode };
   await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
@@ -634,6 +636,7 @@ export async function handleStock(config, tg, range, { fresh = false, headed, gr
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
       buildStockMessage({ label: range.label, period, targetDb: dbLabel(config), dataset: ds, updatedAt, groups }),
+      scopeNoteText(ds),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -682,6 +685,7 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
       buildSalesMessage({ label: range.label, period, targetDb: dbLabel(config), dataset: ds, updatedAt, groups, by }),
+      scopeNoteText(ds),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {

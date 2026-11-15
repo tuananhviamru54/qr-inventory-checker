@@ -97,3 +97,16 @@ test('toàn hệ thống: quỹ tiền tính đầu kỳ/cuối kỳ từng sổ
   assert.deepEqual(sys.system.map((x) => [x.tenant, x.branchCodes ?? null]), [['a', null], ['b', ['X', 'Y']]]);
   assert.equal(sys.secrets.targetDb, 'A + SỔ B');
 });
+
+test('toàn hệ thống: danh sách Nhóm VTHH là hợp của các sổ', async () => {
+  const { loadGroups } = await import('../src/groups.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'grp-'));
+  try {
+    fs.mkdirSync(path.join(root, 'data'));
+    fs.writeFileSync(path.join(root, 'data/a.json'), JSON.stringify([{ code: 'HH', level: 0 }, { code: 'ECO', level: 1, parent: 'HH' }]));
+    fs.writeFileSync(path.join(root, 'data/b.json'), JSON.stringify([{ code: 'ECO', level: 0 }, { code: 'PRIZO', level: 0 }]));
+    const sub = (f) => ({ root, sources: [{ id: 'doanh_so', groups: { file: `data/${f}.json` } }] });
+    const list = loadGroups({ root, system: [sub('a'), sub('b')], sources: [] });
+    assert.deepEqual(list.map((g) => g.code), ['HH', 'ECO', 'PRIZO']);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
