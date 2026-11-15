@@ -530,6 +530,272 @@
         }
       },
       "onDemand": true
+    },
+    {
+      "id": "cong_no_phai_thu",
+      "name": "Công nợ phải thu khách hàng",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "ma_doi_tuong"
+        ],
+        "fields": {
+          "ma_doi_tuong": {
+            "headers": [
+              "Mã khách hàng",
+              "Mã nhà cung cấp",
+              "Mã đối tượng"
+            ],
+            "type": "text"
+          },
+          "ten_doi_tuong": {
+            "headers": [
+              "Tên khách hàng",
+              "Tên nhà cung cấp",
+              "Tên đối tượng"
+            ],
+            "type": "text"
+          },
+          "dk_no": {
+            "headers": [
+              "Số dư đầu kỳ Nợ"
+            ]
+          },
+          "dk_co": {
+            "headers": [
+              "Số dư đầu kỳ Có"
+            ]
+          },
+          "ps_no": {
+            "headers": [
+              "Phát sinh Nợ"
+            ]
+          },
+          "ps_co": {
+            "headers": [
+              "Phát sinh Có"
+            ]
+          },
+          "ck_no": {
+            "headers": [
+              "Số dư cuối kỳ Nợ"
+            ]
+          },
+          "ck_co": {
+            "headers": [
+              "Số dư cuối kỳ Có"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/ReceivableDeptSummary"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "ensureChecked": "[data-testid='sme_rsp_mschk_isselectallcustomer']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cong_no_phai_tra",
+      "name": "Công nợ phải trả nhà cung cấp",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "ma_doi_tuong"
+        ],
+        "fields": {
+          "ma_doi_tuong": {
+            "headers": [
+              "Mã khách hàng",
+              "Mã nhà cung cấp",
+              "Mã đối tượng"
+            ],
+            "type": "text"
+          },
+          "ten_doi_tuong": {
+            "headers": [
+              "Tên khách hàng",
+              "Tên nhà cung cấp",
+              "Tên đối tượng"
+            ],
+            "type": "text"
+          },
+          "dk_no": {
+            "headers": [
+              "Số dư đầu kỳ Nợ"
+            ]
+          },
+          "dk_co": {
+            "headers": [
+              "Số dư đầu kỳ Có"
+            ]
+          },
+          "ps_no": {
+            "headers": [
+              "Phát sinh Nợ"
+            ]
+          },
+          "ps_co": {
+            "headers": [
+              "Phát sinh Có"
+            ]
+          },
+          "ck_no": {
+            "headers": [
+              "Số dư cuối kỳ Nợ"
+            ]
+          },
+          "ck_co": {
+            "headers": [
+              "Số dư cuối kỳ Có"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/PUPayableSummaryBySupplier"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "ensureChecked": "[data-testid='sme_ppsbsp_mschk_isselectallvendor']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
     }
   ],
   "checks": [

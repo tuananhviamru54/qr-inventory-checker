@@ -49,6 +49,8 @@ Chạy `npm run bot`: khi khởi động bot đăng ký menu lệnh của Telegr
 | 🔄 Lấy báo cáo mới nhất | Vào AMIS lấy dữ liệu mới (làm mới) rồi gửi báo cáo đối chiếu tồn kho (= `/moi`) |
 | 📊 Báo cáo tồn kho | Chọn kỳ (như doanh số) rồi chọn **Nhóm VTHH**: tồn đầu kỳ, nhập, xuất, cuối kỳ (số lượng và giá trị), tồn âm, top 10 theo giá trị, tự đối chiếu đầu kỳ + nhập − xuất = cuối kỳ (= `/tonkho`; báo cáo đối chiếu với kiểm kê vẫn là `/baocao`) |
 | 💰 Báo cáo doanh số | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** (= `/doanhso`) |
+| 🧾 Công nợ khách hàng | Chọn kỳ rồi xem công nợ **phải thu** (TK 131): dư đầu kỳ, bán chịu, khách đã trả, dư cuối kỳ, top khách còn nợ, khách dư bên Có; tự đối chiếu với dòng "Tổng cộng" của AMIS (= `/congnokh`) |
+| 🏭 Công nợ nhà cung cấp | Tương tự cho công nợ **phải trả** (TK 331) (= `/congnoncc`) |
 | ❓ Hướng dẫn | Xem hướng dẫn (= `/trogiup`) |
 
 **Báo cáo doanh số** lấy từ báo cáo *Tổng hợp bán hàng theo mặt hàng* của AMIS: doanh số bán, chiết khấu, hàng trả lại,
