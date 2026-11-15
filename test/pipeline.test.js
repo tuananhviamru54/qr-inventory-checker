@@ -359,7 +359,7 @@ test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, 
       ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Báo cáo doanh số', '❓ Hướng dẫn']);
     assert.equal(start.reply_markup.is_persistent, true);
     assert.deepEqual(MENU.keyboard.flat().length, 4);
-    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'baocao', 'doanhso', 'capnhatnhom', 'trogiup']);
+    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'tonkho', 'baocao', 'doanhso', 'capnhatnhom', 'trogiup']);
     await tg.setCommands(COMMANDS);
     assert.ok(mock.state.telegram.some((c) => c.method === 'setMyCommands'));
 
@@ -371,6 +371,14 @@ test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, 
       ['Tháng này', 's:thisMonth'], ['Tháng trước', 's:lastMonth'], ['📅 Tùy chọn ngày', 's:custom'],
     ]);
     assert.equal(mock.state.exports.length, 0); // mới chỉ hiện bảng chọn, chưa vào AMIS
+
+    // bấm nút "Báo cáo tồn kho" → bảng chọn kỳ dùng tiền tố k: (tách khỏi doanh số)
+    await handleUpdate(config, tg, '📊 Báo cáo tồn kho', { state: { awaitingRange: null } });
+    const stockPicker = sentBodies(mock).at(-1);
+    assert.match(stockPicker.text, /Báo cáo tồn kho/);
+    assert.deepEqual(stockPicker.reply_markup.inline_keyboard.flat().map((b) => b.callback_data),
+      ['k:today', 'k:yesterday', 'k:thisWeek', 'k:thisMonth', 'k:lastMonth', 'k:custom']);
+    assert.equal(mock.state.exports.length, 0);
   } finally { await mock.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -47,7 +47,7 @@ Chạy `npm run bot`: khi khởi động bot đăng ký menu lệnh của Telegr
 | Nút | Việc làm |
 |---|---|
 | 🔄 Lấy báo cáo mới nhất | Vào AMIS lấy dữ liệu mới (làm mới) rồi gửi báo cáo đối chiếu tồn kho (= `/moi`) |
-| 📊 Báo cáo tồn kho | Báo cáo đối chiếu, dùng lại dữ liệu nếu vừa xuất trong 30 phút (= `/baocao`) |
+| 📊 Báo cáo tồn kho | Chọn kỳ (như doanh số) rồi chọn **Nhóm VTHH**: tồn đầu kỳ, nhập, xuất, cuối kỳ (số lượng và giá trị), tồn âm, top 10 theo giá trị, tự đối chiếu đầu kỳ + nhập − xuất = cuối kỳ (= `/tonkho`; báo cáo đối chiếu với kiểm kê vẫn là `/baocao`) |
 | 💰 Báo cáo doanh số | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** (= `/doanhso`) |
 | ❓ Hướng dẫn | Xem hướng dẫn (= `/trogiup`) |
 

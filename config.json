@@ -246,7 +246,10 @@
           "waitGone": "button:has-text('Xem báo cáo')"
         },
         {
-          "waitForResult": { "found": "text=Tổng số", "empty": "text=Không có dữ liệu" }
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
         },
         {
           "wait": 3000
@@ -353,6 +356,180 @@
         "prefix": "sme_ssbip_mscm2_p_iic_misa_code_id",
         "file": "data/nhom_vthh.json"
       }
+    },
+    {
+      "id": "ton_kho_nhom",
+      "name": "Tồn kho theo kỳ/nhóm",
+      "type": "amis",
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/INInventoryBalanceSummary"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "setGroups": {
+            "prefix": "sme_iibsp_mscm2_p_iic_misa_code_id",
+            "values": "{{groups}}"
+          }
+        },
+        {
+          "ensureChecked": "[data-testid='sme_iibsp_mschk_isselectallstock']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid='sme_iibdv_msrph_reportheader-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ],
+      "parse": {
+        "key": [
+          "ma_hang"
+        ],
+        "fields": {
+          "ten_kho": {
+            "headers": [
+              "Tên kho",
+              "Kho"
+            ],
+            "type": "text"
+          },
+          "ma_hang": {
+            "headers": [
+              "Mã hàng",
+              "Mã VTHH",
+              "Mã vật tư",
+              "Mã hàng hóa"
+            ],
+            "type": "text"
+          },
+          "ten_hang": {
+            "headers": [
+              "Tên hàng",
+              "Tên VTHH",
+              "Tên vật tư",
+              "Tên hàng hóa"
+            ],
+            "type": "text"
+          },
+          "sl_dau_ky": {
+            "headers": [
+              "Đầu kỳ Số lượng",
+              "Tồn đầu kỳ Số lượng",
+              "SL đầu kỳ"
+            ]
+          },
+          "sl_nhap": {
+            "headers": [
+              "Nhập kho Số lượng",
+              "Nhập trong kỳ Số lượng",
+              "Nhập Số lượng",
+              "SL nhập"
+            ]
+          },
+          "sl_xuat": {
+            "headers": [
+              "Xuất kho Số lượng",
+              "Xuất trong kỳ Số lượng",
+              "Xuất Số lượng",
+              "SL xuất"
+            ]
+          },
+          "sl_cuoi_ky": {
+            "headers": [
+              "Cuối kỳ Số lượng",
+              "Tồn cuối kỳ Số lượng",
+              "Số lượng tồn",
+              "SL tồn",
+              "SL cuối kỳ"
+            ]
+          },
+          "gt_dau_ky": {
+            "headers": [
+              "Đầu kỳ Giá trị",
+              "Tồn đầu kỳ Giá trị"
+            ]
+          },
+          "gt_nhap": {
+            "headers": [
+              "Nhập kho Giá trị",
+              "Nhập trong kỳ Giá trị"
+            ]
+          },
+          "gt_xuat": {
+            "headers": [
+              "Xuất kho Giá trị",
+              "Xuất trong kỳ Giá trị"
+            ]
+          },
+          "gt_cuoi_ky": {
+            "headers": [
+              "Cuối kỳ Giá trị",
+              "Tồn cuối kỳ Giá trị"
+            ]
+          }
+        }
+      },
+      "onDemand": true
     }
   ],
   "checks": [
