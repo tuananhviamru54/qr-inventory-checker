@@ -11,6 +11,7 @@ import { supervisionSection } from './report.js';
 import { buildSalesMessage } from './sales.js';
 import { buildStockMessage } from './stock.js';
 import { buildDebtMessage } from './debt.js';
+import { buildCashMessage } from './cash.js';
 import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
@@ -24,13 +25,14 @@ const BTN = {
   salesKh: '👥 Doanh số theo khách hàng',
   ar: '🧾 Công nợ khách hàng',
   ap: '🏭 Công nợ nhà cung cấp',
+  cash: '💵 Quỹ tiền',
   help: '❓ Hướng dẫn',
 };
-const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.help]: '/trogiup' };
+const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup' };
 
 /** Bàn phím cố định dưới ô nhập tin (luôn hiện cho tới khi bị gỡ). */
 export const MENU = {
-  keyboard: [[{ text: BTN.refresh }, { text: BTN.stock }], [{ text: BTN.sales }, { text: BTN.salesKh }], [{ text: BTN.ar }, { text: BTN.ap }], [{ text: BTN.help }]],
+  keyboard: [[{ text: BTN.refresh }, { text: BTN.stock }], [{ text: BTN.sales }, { text: BTN.salesKh }], [{ text: BTN.ar }, { text: BTN.ap }], [{ text: BTN.cash }, { text: BTN.help }]],
   resize_keyboard: true,
   is_persistent: true,
 };
@@ -43,14 +45,15 @@ export const COMMANDS = [
   { command: 'doanhsokh', description: 'Doanh số theo khách hàng (kèm doanh thu, lãi gộp)' },
   { command: 'congnokh', description: 'Công nợ khách hàng (phải thu, TK 131)' },
   { command: 'congnoncc', description: 'Công nợ nhà cung cấp (phải trả, TK 331)' },
+  { command: 'quytien', description: 'Quỹ tiền: tiền mặt (TK 111) + tiền gửi ngân hàng (TK 112)' },
   { command: 'capnhatnhom', description: 'Cập nhật danh sách Nhóm VTHH từ AMIS' },
   { command: 'trogiup', description: 'Hướng dẫn sử dụng' },
 ];
 
 /** Bàn phím chọn kỳ: tiền tố s: cho báo cáo doanh số, k: cho báo cáo tồn kho. */
-const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q' };
+const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q', cash: 'm' };
 const PREFIX_MODE = Object.fromEntries(Object.entries(MODE_PREFIX).map(([m, p]) => [p, m]));
-const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w' };
+const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w', cash: 'n' };
 const REFRESH_MODE = Object.fromEntries(Object.entries(REFRESH_PREFIX).map(([m, p]) => [p, m]));
 const periodKeyboard = (mode = 'sales') => {
   const p = MODE_PREFIX[mode] ?? 's';
@@ -69,7 +72,8 @@ ${BTN.sales} — doanh số từng mặt hàng kèm doanh thu, lọc theo Nhóm 
 ${BTN.salesKh} — doanh số từng khách hàng kèm doanh thu thuần, lãi gộp (cùng các kỳ như trên)
 ${BTN.ar} — công nợ phải thu (TK 131): dư đầu kỳ, phát sinh, dư cuối kỳ, top khách còn nợ
 ${BTN.ap} — công nợ phải trả (TK 331) theo nhà cung cấp
-(Gõ tắt: /moi · /tonkho · /congnokh · /congnoncc · /baocao (đối chiếu) · /doanhso · /doanhso hôm qua · /doanhsokh)
+${BTN.cash} — tổng tiền hiện có: tồn quỹ tiền mặt (thu, chi, các khoản lớn nhất) và số dư từng tài khoản ngân hàng
+(Gõ tắt: /moi · /tonkho · /congnokh · /congnoncc · /baocao (đối chiếu) · /doanhso · /doanhso hôm qua · /doanhsokh · /quytien)
 
 ${aiEnabled(config.ai)
   ? 'Hoặc gõ câu hỏi bất kỳ về tồn kho. Mọi câu trả lời đều qua chuyên gia (AI) đối chiếu và chốt, rồi kế toán trưởng (AI) kiểm tra độ chính xác trước khi gửi.'
@@ -155,7 +159,7 @@ const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi
 export async function beginSales(config, tg, range, opts = {}) {
   const state = opts.state ?? defaultState;
   const mode = opts.mode ?? state.mode ?? 'sales';
-  const list = mode === 'ar' || mode === 'ap' || mode === 'salesKh' ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
+  const list = ['ar', 'ap', 'salesKh', 'cash'].includes(mode) ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
   if (!list.length) return runReport(config, tg, mode, range, opts); // chưa có danh sách nhóm → lấy tất cả
   state.pick = { range, list, selected: new Set(), mode };
   await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
@@ -227,11 +231,11 @@ export function parseSalesIntent(text, now = new Date()) {
 
 async function sendPeriodPicker(tg, note = '', mode = 'sales', state = defaultState) {
   state.mode = mode;
-  const head = { stock: '📊 <b>Báo cáo tồn kho</b> (đầu kỳ, nhập, xuất, cuối kỳ, giá trị)', ar: '🧾 <b>Công nợ khách hàng</b> (phải thu, TK 131)', ap: '🏭 <b>Công nợ nhà cung cấp</b> (phải trả, TK 331)', salesKh: '👥 <b>Doanh số theo khách hàng</b> (kèm doanh thu thuần, lãi gộp)' }[mode] ?? '💰 <b>Doanh số theo mặt hàng</b> (kèm doanh thu thuần, lãi gộp)';
+  const head = { stock: '📊 <b>Báo cáo tồn kho</b> (đầu kỳ, nhập, xuất, cuối kỳ, giá trị)', ar: '🧾 <b>Công nợ khách hàng</b> (phải thu, TK 131)', ap: '🏭 <b>Công nợ nhà cung cấp</b> (phải trả, TK 331)', salesKh: '👥 <b>Doanh số theo khách hàng</b> (kèm doanh thu thuần, lãi gộp)', cash: '💵 <b>Quỹ tiền</b> (tiền mặt + tiền gửi ngân hàng)' }[mode] ?? '💰 <b>Doanh số theo mặt hàng</b> (kèm doanh thu thuần, lãi gộp)';
   await tg.sendMessage(`${note ? `${note}\n\n` : ''}${head}\nChọn kỳ cần xem:`, { reply_markup: periodKeyboard(mode) });
 }
 
-const runReport = (config, tg, mode, range, opts) => (mode === 'stock' ? handleStock(config, tg, range, opts) : mode === 'ar' || mode === 'ap' ? handleDebt(config, tg, mode, range, opts) : handleSales(config, tg, range, { ...opts, by: mode === 'salesKh' ? 'customer' : 'item' }));
+const runReport = (config, tg, mode, range, opts) => (mode === 'cash' ? handleCash(config, tg, range, opts) : mode === 'stock' ? handleStock(config, tg, range, opts) : mode === 'ar' || mode === 'ap' ? handleDebt(config, tg, mode, range, opts) : handleSales(config, tg, range, { ...opts, by: mode === 'salesKh' ? 'customer' : 'item' }));
 
 const refreshButton = (config, range, groups, prefix) => `${prefix}:${ddmmyyyy(range.fromDate)}:${ddmmyyyy(range.toDate)}${groups.length ? `:${groups.map((c) => loadGroups(config).findIndex((g) => g.code === c)).filter((i) => i >= 0).join('-')}` : ''}`;
 
@@ -276,6 +280,46 @@ export async function handleDebt(config, tg, mode, range, { fresh = false, heade
     }
     await progress.finish(true);
     return { message };
+  } catch (e) {
+    await progress.finish(false);
+    throw e;
+  }
+}
+
+/** Quỹ tiền: xuất 2 báo cáo trong cùng một phiên AMIS (sổ quỹ tiền mặt + bảng kê số dư ngân hàng). */
+export async function handleCash(config, tg, range, { fresh = false, headed } = {}) {
+  const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
+  const ids = ['quy_tien_mat', 'so_du_ngan_hang'];
+  const suffix = `__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}`;
+  const fileKeys = Object.fromEntries(ids.map((id) => [id, `${id}${suffix}`]));
+  const reuse = !fresh && ids.every((id) => fileAgeMinutes(config, fileKeys[id]) <= config.bot.maxDataAgeMinutes);
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'send'];
+  const progress = new Progress(tg, { title: `Đang lập báo cáo quỹ tiền — ${range.label}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  await progress.start();
+  try {
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period, sourceIds: ids, fileKeys });
+    await progress.stage('send');
+    const view = (id) => { const ds = data.datasets[id]; return ds.error?.includes('NO_DATA') ? { noData: true } : ds.missing ? { error: 'chưa có dữ liệu' } : ds; };
+    const cash = view(ids[0]), bank = view(ids[1]);
+    const failed = [cash, bank].some((d) => d.error);
+    const file = data.datasets[ids[1]].file ?? data.datasets[ids[0]].file;
+    const updatedAt = file ? vnTime(fs.statSync(file).mtimeMs) : '';
+    const message = [
+      buildCashMessage({ label: range.label, period, targetDb: config.secrets.targetDb, cash, bank, updatedAt }),
+      supervisionSection(data.supervision, data.blocked),
+    ].filter(Boolean).join('\n\n');
+    await tg.sendMessage(message, {
+      reply_markup: { inline_keyboard: [[
+        { text: '🔄 Làm mới số liệu này', callback_data: refreshButton(config, range, [], REFRESH_PREFIX.cash) },
+        { text: '📅 Chọn kỳ khác', callback_data: `${MODE_PREFIX.cash}:menu` },
+      ]] },
+    });
+    for (const f of fs.existsSync(config.dirs.downloads) ? fs.readdirSync(config.dirs.downloads) : []) {
+      const full = path.join(config.dirs.downloads, f);
+      if (ids.some((id) => f.startsWith(`${id}__`)) && Date.now() - fs.statSync(full).mtimeMs > 2 * 864e5) fs.rmSync(full, { force: true });
+    }
+    await progress.finish(!failed);
+    return { message, failed };
   } catch (e) {
     await progress.finish(false);
     throw e;
@@ -524,6 +568,7 @@ export async function handleUpdate(config, tg, text, opts = {}) {
   if (cmd === '/start' || cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config), { reply_markup: MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);
+  if (cmd === '/quytien') return sendPeriodPicker(tg, '', 'cash', state);
   if (cmd === '/congnoncc') return sendPeriodPicker(tg, '', 'ap', state);
   if (cmd === '/baocao') return handleReport(config, tg, { fresh: false, ...opts });
   if (cmd === '/moi') return handleReport(config, tg, { fresh: true, ...opts });
@@ -617,7 +662,7 @@ export async function runBot(config, opts = {}) {
           const work = retries.get(cq.data.slice(2));
           if (work) dispatch(work);
           else await tg.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo ở bàn phím bên dưới.').catch(() => {});
-        } else if (/^[skpqhjruvw]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
+        } else if (/^[skpqhjmnruvw]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           dispatch(() => handleCallbackData(config, tg, cq.data, opts));
         } else await tg.handleCallback(cq).catch(() => {});

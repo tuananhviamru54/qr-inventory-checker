@@ -932,6 +932,260 @@
           }
         }
       ]
+    },
+    {
+      "id": "quy_tien_mat",
+      "name": "Sổ quỹ tiền mặt",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "dien_giai"
+        ],
+        "fields": {
+          "dien_giai": {
+            "headers": [
+              "Diễn giải"
+            ],
+            "type": "text"
+          },
+          "ngay": {
+            "headers": [
+              "Ngày hạch toán"
+            ],
+            "type": "text"
+          },
+          "so_thu": {
+            "headers": [
+              "Số phiếu thu"
+            ],
+            "type": "text"
+          },
+          "so_chi": {
+            "headers": [
+              "Số phiếu chi"
+            ],
+            "type": "text"
+          },
+          "tk_du": {
+            "headers": [
+              "TK đối ứng"
+            ],
+            "type": "text"
+          },
+          "no": {
+            "headers": [
+              "Số phát sinh Nợ"
+            ]
+          },
+          "co": {
+            "headers": [
+              "Số phát sinh Có"
+            ]
+          },
+          "ton": {
+            "headers": [
+              "Số tồn"
+            ]
+          },
+          "nguoi": {
+            "headers": [
+              "Người nhận/Người nộp"
+            ],
+            "type": "text"
+          }
+        }
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/CACashDetailBook"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "ensureChecked": "[data-testid='sme_ccdbp_msgrid_accountselected-mstr-getgriddata-0-3-chk-multiple']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
+    },
+    {
+      "id": "so_du_ngan_hang",
+      "name": "Bảng kê số dư ngân hàng",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "tk_nh"
+        ],
+        "fields": {
+          "tk_nh": {
+            "headers": [
+              "Tài khoản ngân hàng"
+            ],
+            "type": "text"
+          },
+          "ten_nh": {
+            "headers": [
+              "Tên ngân hàng"
+            ],
+            "type": "text"
+          },
+          "dau_ky": {
+            "headers": [
+              "Số dư đầu kỳ"
+            ]
+          },
+          "ps_no": {
+            "headers": [
+              "Phát sinh Nợ"
+            ]
+          },
+          "ps_co": {
+            "headers": [
+              "Phát sinh Có"
+            ]
+          },
+          "cuoi_ky": {
+            "headers": [
+              "Số dư cuối kỳ"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/BAListOfBalance"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Tổng số",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
     }
   ],
   "checks": [

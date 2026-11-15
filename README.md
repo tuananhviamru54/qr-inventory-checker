@@ -50,6 +50,7 @@ Chạy `npm run bot`: khi khởi động bot đăng ký menu lệnh của Telegr
 | 📊 Báo cáo tồn kho | Chọn kỳ (như doanh số) rồi chọn **Nhóm VTHH**: tồn đầu kỳ, nhập, xuất, cuối kỳ (số lượng và giá trị), tồn âm, top 10 theo giá trị, tự đối chiếu đầu kỳ + nhập − xuất = cuối kỳ (= `/tonkho`; báo cáo đối chiếu với kiểm kê vẫn là `/baocao`) |
 | 💰 Doanh số theo mặt hàng | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** rồi chọn Nhóm VTHH (= `/doanhso`) |
 | 👥 Doanh số theo khách hàng | Cùng bảng chọn kỳ; lấy từ báo cáo *Tổng hợp bán hàng theo khách hàng*: doanh số, chiết khấu, trả lại, doanh thu thuần, lãi gộp của từng khách (= `/doanhsokh`) |
+| 💵 Quỹ tiền | Cùng bảng chọn kỳ; ghép *Sổ kế toán chi tiết quỹ tiền mặt* (TK 111: tồn đầu, thu, chi, tồn cuối, 5 khoản thu/chi lớn nhất, cảnh báo quỹ âm) với *Bảng kê số dư ngân hàng* (TK 112: số dư từng tài khoản) thành tổng tiền hiện có (= `/quytien`) |
 | 🧾 Công nợ khách hàng | Chọn kỳ rồi xem công nợ **phải thu** (TK 131): dư đầu kỳ, bán chịu, khách đã trả, dư cuối kỳ, top khách còn nợ, khách dư bên Có; tự đối chiếu với dòng "Tổng cộng" của AMIS (= `/congnokh`) |
 | 🏭 Công nợ nhà cung cấp | Tương tự cho công nợ **phải trả** (TK 331) (= `/congnoncc`) |
 | ❓ Hướng dẫn | Xem hướng dẫn (= `/trogiup`) |

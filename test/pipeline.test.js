@@ -356,10 +356,10 @@ test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, 
     await handleUpdate(config, tg, '/start', { state: { awaitingRange: null } });
     const start = sentBodies(mock).at(-1);
     assert.deepEqual(start.reply_markup.keyboard.flat().map((b) => b.text),
-      ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Doanh số theo mặt hàng', '👥 Doanh số theo khách hàng', '🧾 Công nợ khách hàng', '🏭 Công nợ nhà cung cấp', '❓ Hướng dẫn']);
+      ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Doanh số theo mặt hàng', '👥 Doanh số theo khách hàng', '🧾 Công nợ khách hàng', '🏭 Công nợ nhà cung cấp', '💵 Quỹ tiền', '❓ Hướng dẫn']);
     assert.equal(start.reply_markup.is_persistent, true);
-    assert.deepEqual(MENU.keyboard.flat().length, 7);
-    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'tonkho', 'baocao', 'doanhso', 'doanhsokh', 'congnokh', 'congnoncc', 'capnhatnhom', 'trogiup']);
+    assert.deepEqual(MENU.keyboard.flat().length, 8);
+    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'tonkho', 'baocao', 'doanhso', 'doanhsokh', 'congnokh', 'congnoncc', 'quytien', 'capnhatnhom', 'trogiup']);
     await tg.setCommands(COMMANDS);
     assert.ok(mock.state.telegram.some((c) => c.method === 'setMyCommands'));
 
