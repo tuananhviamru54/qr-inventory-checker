@@ -341,8 +341,18 @@ export class AmisSession {
             // đợi bảng có dữ liệu ("found") hoặc trang báo trống ("empty") — trống không phải lỗi
             const found = page.locator(t(arg.found)).first();
             const empty = page.locator(t(arg.empty)).first();
-            await found.or(empty).first().waitFor({ state: 'visible' });
-            if (await empty.isVisible().catch(() => false)) throw new Error('NO_DATA: báo cáo không có dữ liệu trong kỳ/bộ lọc đã chọn');
+            // chữ "Không có dữ liệu" có thể hiện tạm lúc đang tải → chỉ kết luận trống khi nó còn nguyên sau 8 giây mà vẫn chưa có bảng
+            const deadline = Date.now() + 60000;
+            let emptySince = null;
+            for (;;) {
+              if (await found.isVisible().catch(() => false)) break;
+              if (await empty.isVisible().catch(() => false)) {
+                emptySince ??= Date.now();
+                if (Date.now() - emptySince > 8000) throw new Error('NO_DATA: báo cáo không có dữ liệu trong kỳ/bộ lọc đã chọn');
+              } else emptySince = null;
+              if (Date.now() > deadline) throw new Error('Hết thời gian chờ bảng báo cáo hiện kết quả');
+              await page.waitForTimeout(500);
+            }
             break;
           }
           case 'waitFor': await page.locator(t(arg)).first().waitFor({ state: 'visible' }); break;
