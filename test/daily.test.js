@@ -49,6 +49,6 @@ test('báo cáo cuối ngày: luỹ kế năm theo mặt hàng', () => {
   const msg = buildDailyMessage({ date: '16/11/2026', ds: { salesYtd: { missingFields: [], rows: [r('A', 100), r('B', 300)], totals: null } } });
   assert.match(msg, /LUỸ KẾ NĂM 2026<\/b> <i>\(01\/01 – 16\/11\)/);
   assert.match(msg, /Doanh thu thuần <b>400 đ/);
-  assert.ok(msg.indexOf('Hàng B') < msg.indexOf('Hàng A'));
-  assert.match(msg, /Hàng B — 300 đ \(75%\)/);
+  assert.match(msg, /2 mặt hàng có phát sinh/);
+  assert.doesNotMatch(msg, /Top \d+ mặt hàng cả năm/);
 });

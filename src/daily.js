@@ -32,7 +32,7 @@ const verified = (msg) => msg.includes('✔ Đã đối chiếu'); // các báo 
 /**
  * @param ds  { cash, bank, sales, salesKh, ar, ap, stock } — dataset đã đọc (hoặc {error})
  */
-export function buildDailyMessage({ date, now = new Date(), targetDb, ds, updatedAt, ytdTop = 10 }) {
+export function buildDailyMessage({ date, now = new Date(), targetDb, ds, updatedAt, ytdTop = 0 }) {
   const vn = new Date(now.getTime() + 7 * 3600e3);
   const period = { fromDate: date, toDate: date };
   const L = [
@@ -99,8 +99,8 @@ export function buildDailyMessage({ date, now = new Date(), targetDb, ds, update
       L.push(`   Doanh thu thuần ${big(dt)}`);
       L.push(`   Doanh số ${vnd(sum(rows, 'doanh_so'))} · lãi gộp ${vnd(lg)} (${pct(lg, dt)})`);
       L.push(`   ${rows.length} mặt hàng có phát sinh`);
-      L.push(`   <u>Top ${Math.min(ytdTop, rows.length)} mặt hàng cả năm</u>`);
-      [...rows].sort((x, y) => y.doanh_thu - x.doanh_thu).slice(0, ytdTop).forEach((r, i) => L.push(`   ${MEDALS[i] ?? `${i + 1}.`} <code>${escapeHtml(r.ma_hang)}</code> ${escapeHtml(cut(r.ten_hang, 40))} — ${short(r.doanh_thu)} (${pct(r.doanh_thu, dt)})`));
+      if (ytdTop) L.push(`   <u>Top ${Math.min(ytdTop, rows.length)} mặt hàng cả năm</u>`);
+      if (ytdTop) [...rows].sort((x, y) => y.doanh_thu - x.doanh_thu).slice(0, ytdTop).forEach((r, i) => L.push(`   ${MEDALS[i] ?? `${i + 1}.`} <code>${escapeHtml(r.ma_hang)}</code> ${escapeHtml(cut(r.ten_hang, 40))} — ${short(r.doanh_thu)} (${pct(r.doanh_thu, dt)})`));
       checks.push(['Luỹ kế năm', verified(buildSalesMessage({ label: '', period: { fromDate: `01/01/${year}`, toDate: date }, dataset: ds.salesYtd }))]);
     }
   }
