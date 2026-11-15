@@ -114,12 +114,18 @@ export function dashboardCaption(config, now = new Date()) {
     '👇 Chọn báo cáo bên dưới',
   ].join('\n');
 }
-export async function sendDashboard(config, tg) {
+/** Ô bấm trang chủ; chat riêng của chủ bot có thêm ô Kết quả kinh doanh (🔒). */
+export const dashboardKeyboard = (ownerPrivate = false) => (ownerPrivate
+  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả kinh doanh 🔒', callback_data: 'f:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3)] }
+  : DASHBOARD_KEYBOARD);
+export async function sendDashboard(config, tg, { ownerPrivate = false } = {}) {
+  const kb = dashboardKeyboard(ownerPrivate);
+  const caption = dashboardCaption(config) + (ownerPrivate ? '\n🔒 <i>Riêng bạn: Kết quả kinh doanh (B02)</i>' : '');
   try {
-    await tg.sendFile(LOGO, dashboardCaption(config), 'sendPhoto', { html: true, reply_markup: DASHBOARD_KEYBOARD });
+    await tg.sendFile(LOGO, caption, 'sendPhoto', { html: true, reply_markup: kb });
   } catch (e) {
     console.error(`Không gửi được ảnh trang chủ: ${e.message}`);
-    await tg.sendMessage(dashboardCaption(config), { reply_markup: DASHBOARD_KEYBOARD }); // không gửi được ảnh → gửi chữ
+    await tg.sendMessage(caption, { reply_markup: kb }); // không gửi được ảnh → gửi chữ
   }
 }
 
@@ -718,7 +724,7 @@ export async function handleUpdate(config, tg, text, opts = {}) {
     }
   }
 
-  if (cmd === '/start') { await sendDashboard(config, tg); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU }); }
+  if (cmd === '/start') { await sendDashboard(config, tg, { ownerPrivate: opts.ownerPrivate }); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU }); }
   if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config) + (opts.ownerPrivate ? '\n\n🔒 Riêng bạn: 📑 Kết quả KD (/ketqua) — báo cáo kết quả kinh doanh B02, kỳ này so với kỳ trước.' : ''), { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);

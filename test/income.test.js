@@ -45,3 +45,11 @@ test('kết quả kinh doanh: chỉ chủ bot trong chat riêng mới xem đư�
   assert.ok(MENU_OWNER.keyboard.flat().some((b) => /Kết quả KD/.test(b.text)));
   assert.ok(!MENU.keyboard.flat().some((b) => /Kết quả KD/.test(b.text)));
 });
+
+test('trang chủ: ô Kết quả kinh doanh chỉ có trong chat riêng của chủ bot', async () => {
+  const { dashboardKeyboard, dashboardCaption } = await import('../src/bot.js');
+  const data = (k) => k.inline_keyboard.flat().map((b) => b.callback_data);
+  assert.ok(data(dashboardKeyboard(true)).includes('f:menu'));
+  assert.ok(!data(dashboardKeyboard(false)).includes('f:menu'));
+  assert.ok((dashboardCaption({ secrets: {} }) + '\n🔒 <i>Riêng bạn: Kết quả kinh doanh (B02)</i>').length < 1024);
+});
