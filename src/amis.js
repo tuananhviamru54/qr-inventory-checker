@@ -401,7 +401,9 @@ export class AmisSession {
             }
             break;
           }
-          case 'waitFor': await page.locator(t(arg)).first().waitFor({ state: 'visible' }); break;
+          case 'waitFor': // "selector" hoặc { selector, timeout } cho báo cáo lớn tạo file lâu
+            await page.locator(t(typeof arg === 'string' ? arg : arg.selector)).first().waitFor({ state: 'visible', ...(arg.timeout ? { timeout: arg.timeout } : {}) });
+            break;
           case 'download': {
             // dạng rút gọn: "selector"; dạng đầy đủ: { selector, confirm?, response? }
             // confirm: nút xác nhận có thể hiện ra sau khi bấm; response: đoạn URL của yêu cầu tải file

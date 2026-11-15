@@ -1494,7 +1494,10 @@
           }
         },
         {
-          "waitFor": "text=\"Tải tệp\""
+          "waitFor": {
+            "selector": "text=\"Tải tệp\"",
+            "timeout": 180000
+          }
         },
         {
           "download": {

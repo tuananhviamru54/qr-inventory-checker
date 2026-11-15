@@ -1,5 +1,5 @@
 // Đọc "Sổ chi tiết các tài khoản" (GLAccountLedger) của AMIS và lấy chứng từ của 1 tài khoản (vd 632, 642).
-// File có dạng: dòng "Tài khoản: 632" → các dòng chứng từ → dòng "Cộng"; lặp lại cho từng tài khoản.
+// Dạng 1: dòng "Tài khoản: 632" → các dòng chứng từ → dòng "Cộng". Dạng 2 (sổ nhiều chi nhánh): cột "Tài khoản" trên từng dòng.
 import ExcelJS from 'exceljs';
 import { escapeHtml, norm } from './util.js';
 
@@ -25,13 +25,15 @@ export async function readLedger(file) {
       const h = v.map((x) => norm(x));
       if (h.includes('so chung tu') && h.some((x) => x === 'phat sinh no')) {
         const i = (name) => h.indexOf(name);
-        col = { date: i('ngay hach toan'), no: i('so chung tu'), desc: i('dien giai'), contra: i('tk doi ung'), debit: i('phat sinh no'), credit: i('phat sinh co'), partner: i('ten doi tuong') };
+        col = { date: i('ngay hach toan'), no: i('so chung tu'), desc: i('dien giai'), acc: i('tai khoan'), contra: i('tk doi ung'), debit: i('phat sinh no'), credit: i('phat sinh co'), partner: i('ten doi tuong') };
       }
       return;
     }
     const first = String(v[0] ?? '');
     const head = /^Tài khoản:\s*(\S+)/i.exec(first.normalize('NFC'));
     if (head) { acc = head[1]; if (!out.has(acc)) out.set(acc, []); return; }
+    // dạng 2 (sổ nhiều chi nhánh): mỗi dòng có cột "Tài khoản" riêng, không có dòng tiêu đề khối
+    if (col.acc >= 0 && String(v[col.acc] ?? '').trim()) { acc = String(v[col.acc]).trim(); if (!out.has(acc)) out.set(acc, []); }
     if (!acc) return;
     const no = String(v[col.no] ?? '').trim();
     if (!no) return; // số dư đầu kỳ, dòng Cộng, dòng trống
