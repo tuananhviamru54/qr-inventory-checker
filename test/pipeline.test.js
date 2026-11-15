@@ -246,7 +246,7 @@ test('bot Telegram: hỏi → tiến độ → trợ lý soạn → kế toán t
     assert.match(calls[0].body.text, /Đang xử lý câu hỏi/);
     const edits = calls.filter((c) => c.method === 'editMessageText');
     assert.ok(edits.length >= 4);
-    assert.ok(edits.some((e) => /🔄 \d\/7 Kế toán trưởng kiểm soát/.test(e.body.text)));
+    assert.ok(edits.some((e) => /🔄 \d\/7 (<b>)?Kế toán trưởng kiểm soát/.test(e.body.text)));
     assert.match(edits.at(-1).body.text, /^✅.*\n(✅.*\n){7}⏱ Tổng thời gian/s);
     const answer = calls.filter((c) => c.method === 'sendMessage').at(-1).body.text;
     assert.match(answer, /SP002 Vở kẻ ngang còn 180 quyển/);
@@ -356,10 +356,10 @@ test('bộ điều khiển mặc định: bàn phím cố định, menu lệnh, 
     await handleUpdate(config, tg, '/start', { state: { awaitingRange: null } });
     const start = sentBodies(mock).at(-1);
     assert.deepEqual(start.reply_markup.keyboard.flat().map((b) => b.text),
-      ['🔄 Lấy báo cáo mới nhất', '📊 Báo cáo tồn kho', '💰 Doanh số theo mặt hàng', '👥 Doanh số theo khách hàng', '🧾 Công nợ khách hàng', '🏭 Công nợ nhà cung cấp', '💵 Quỹ tiền', '❓ Hướng dẫn']);
+      ['📊 Báo cáo tồn kho', '💵 Quỹ tiền', '💰 Doanh số theo mặt hàng', '👥 Doanh số theo khách hàng', '🧾 Công nợ khách hàng', '🏭 Công nợ nhà cung cấp', '🔄 Lấy báo cáo mới nhất', '🏠 Trang chủ']);
     assert.equal(start.reply_markup.is_persistent, true);
     assert.deepEqual(MENU.keyboard.flat().length, 8);
-    assert.deepEqual(COMMANDS.map((c) => c.command), ['moi', 'tonkho', 'baocao', 'doanhso', 'doanhsokh', 'congnokh', 'congnoncc', 'quytien', 'capnhatnhom', 'trogiup']);
+    assert.deepEqual(COMMANDS.map((c) => c.command), ['start', 'moi', 'tonkho', 'baocao', 'doanhso', 'doanhsokh', 'congnokh', 'congnoncc', 'quytien', 'capnhatnhom', 'trogiup']);
     await tg.setCommands(COMMANDS);
     assert.ok(mock.state.telegram.some((c) => c.method === 'setMyCommands'));
 

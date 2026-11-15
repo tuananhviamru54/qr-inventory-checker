@@ -27,3 +27,13 @@ test('tin lỗi dễ hiểu: lỗi chương trình, AMIS chậm, lỗi khác gi�
   assert.match(friendlyError(new Error('locator.waitFor: Timeout 30000ms exceeded')), /AMIS phản hồi chậm/);
   assert.equal(friendlyError(new Error('Tài khoản đang được dùng ở nơi khác')), 'Tài khoản đang được dùng ở nơi khác');
 });
+
+test('trang chủ: chú thích ảnh dưới giới hạn 1024 ký tự của Telegram, ô bấm trỏ tới đủ 6 báo cáo', async () => {
+  const { dashboardCaption, DASHBOARD_KEYBOARD } = await import('../src/bot.js');
+  const cap = dashboardCaption({ secrets: { targetDb: 'KHO QUẢNG NINH' } }, new Date('2026-11-15T03:00:00Z'));
+  assert.ok(cap.length < 1024, `dài ${cap.length}`);
+  assert.match(cap, /ECOPLAST QUẢNG NINH/);
+  assert.match(cap, /Chủ nhật, 15\/11\/2026/);
+  const data = DASHBOARD_KEYBOARD.inline_keyboard.flat().map((b) => b.callback_data);
+  for (const d of ['k:menu', 'm:menu', 's:menu', 'h:menu', 'p:menu', 'q:menu', 'z:check', 'z:help']) assert.ok(data.includes(d), d);
+});

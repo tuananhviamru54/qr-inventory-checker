@@ -128,11 +128,13 @@ export class Telegram {
     await this.call('setMyCommands', { commands });
   }
 
-  async sendFile(file, caption, method = 'sendDocument') {
+  async sendFile(file, caption, method = 'sendDocument', { html = false, reply_markup } = {}) {
     const form = new FormData();
     form.set('chat_id', String(this.chatId));
-    if (caption) form.set('caption', caption.slice(0, 1000));
+    if (caption) form.set('caption', caption.slice(0, 1024));
+    if (html) form.set('parse_mode', 'HTML');
+    if (reply_markup) form.set('reply_markup', JSON.stringify(reply_markup));
     form.set(method === 'sendPhoto' ? 'photo' : 'document', new Blob([await fs.readFile(file)]), path.basename(file));
-    await this.call(method, form);
+    return this.call(method, form);
   }
 }

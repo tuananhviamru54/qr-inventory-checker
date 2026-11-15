@@ -16,6 +16,7 @@ import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---- Bộ điều khiển mặc định trong Telegram ----
 const BTN = {
@@ -26,18 +27,20 @@ const BTN = {
   ar: '🧾 Công nợ khách hàng',
   ap: '🏭 Công nợ nhà cung cấp',
   cash: '💵 Quỹ tiền',
+  home: '🏠 Trang chủ',
   help: '❓ Hướng dẫn',
 };
-const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup' };
+const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup', [BTN.home]: '/start' };
 
 /** Bàn phím cố định dưới ô nhập tin (luôn hiện cho tới khi bị gỡ). */
 export const MENU = {
-  keyboard: [[{ text: BTN.refresh }, { text: BTN.stock }], [{ text: BTN.sales }, { text: BTN.salesKh }], [{ text: BTN.ar }, { text: BTN.ap }], [{ text: BTN.cash }, { text: BTN.help }]],
+  keyboard: [[{ text: BTN.stock }, { text: BTN.cash }], [{ text: BTN.sales }, { text: BTN.salesKh }], [{ text: BTN.ar }, { text: BTN.ap }], [{ text: BTN.refresh }, { text: BTN.home }]],
   resize_keyboard: true,
   is_persistent: true,
 };
 
 export const COMMANDS = [
+  { command: 'start', description: 'Trang chủ: logo và các báo cáo' },
   { command: 'moi', description: 'Lấy báo cáo mới nhất (làm mới dữ liệu từ AMIS)' },
   { command: 'tonkho', description: 'Báo cáo tồn kho theo kỳ và Nhóm VTHH' },
   { command: 'baocao', description: 'Báo cáo đối chiếu (tồn kho với kiểm kê)' },
@@ -63,6 +66,45 @@ const periodKeyboard = (mode = 'sales') => {
     [{ text: 'Tháng trước', callback_data: `${p}:lastMonth` }, { text: '📅 Tùy chọn ngày', callback_data: `${p}:custom` }],
   ] };
 };
+
+// ---- Trang chủ (dashboard): logo + các ô báo cáo bấm được ----
+const LOGO = fileURLToPath(new URL('../assets/logo.jpg', import.meta.url));
+const WEEKDAYS = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
+export const DASHBOARD_KEYBOARD = { inline_keyboard: [
+  [{ text: '📊 Tồn kho', callback_data: 'k:menu' }, { text: '💵 Quỹ tiền', callback_data: 'm:menu' }],
+  [{ text: '💰 DS mặt hàng', callback_data: 's:menu' }, { text: '👥 DS khách hàng', callback_data: 'h:menu' }],
+  [{ text: '🧾 Phải thu KH', callback_data: 'p:menu' }, { text: '🏭 Phải trả NCC', callback_data: 'q:menu' }],
+  [{ text: '🔄 Đối chiếu kho', callback_data: 'z:check' }, { text: '❓ Hướng dẫn', callback_data: 'z:help' }],
+] };
+export function dashboardCaption(config, now = new Date()) {
+  const vn = new Date(now.getTime() + 7 * 3600e3);
+  const date = `${WEEKDAYS[vn.getUTCDay()]}, ${String(vn.getUTCDate()).padStart(2, '0')}/${String(vn.getUTCMonth() + 1).padStart(2, '0')}/${vn.getUTCFullYear()}`;
+  const db = config.secrets.targetDb ? ` · 🗄 ${escapeHtml(config.secrets.targetDb)}` : '';
+  return [
+    '🐉 <b>TỔNG KHO NHỰA ECOPLAST QUẢNG NINH</b>',
+    `<i>Trung tâm báo cáo MISA AMIS</i>${db}`,
+    `📅 ${date}`,
+    '━━━━━━━━━━━━━━━━━━',
+    '📦 <b>KHO & BÁN HÀNG</b>',
+    '   📊 Tồn kho — đầu kỳ · nhập · xuất · cuối kỳ',
+    '   💰 Doanh số theo mặt hàng · Nhóm VTHH',
+    '   👥 Doanh số theo khách hàng · lãi gộp',
+    '💳 <b>CÔNG NỢ & DÒNG TIỀN</b>',
+    '   🧾 Phải thu khách hàng (TK 131)',
+    '   🏭 Phải trả nhà cung cấp (TK 331)',
+    '   💵 Quỹ tiền — tiền mặt + ngân hàng',
+    '━━━━━━━━━━━━━━━━━━',
+    '🛡 Chỉ đọc · mọi thao tác ghi đều bị chặn',
+    '👇 Chọn báo cáo bên dưới',
+  ].join('\n');
+}
+export async function sendDashboard(config, tg) {
+  try {
+    await tg.sendFile(LOGO, dashboardCaption(config), 'sendPhoto', { html: true, reply_markup: DASHBOARD_KEYBOARD });
+  } catch {
+    await tg.sendMessage(dashboardCaption(config), { reply_markup: DASHBOARD_KEYBOARD }); // không gửi được ảnh → gửi chữ
+  }
+}
 
 const helpText = (config) => `🤖 <b>Bot đối chiếu MISA AMIS</b> (chỉ đọc)
 Dùng các nút dưới ô nhập tin:
@@ -434,6 +476,10 @@ export async function handleCallbackData(config, tg, data, opts = {}) {
     if (PERIOD_LABELS[a]) return beginSales(config, tg, periodOf(a), { ...opts, mode });
     return tg.sendMessage('Lựa chọn không hợp lệ.');
   }
+  if (kind === 'z') {
+    if (a === 'check') return handleReport(config, tg, { ...opts, fresh: false });
+    return tg.sendMessage(helpText(config), { reply_markup: MENU });
+  }
   if (kind === 'c') {
     const range = await applyCalendar(tg, state, data, opts.messageId);
     return range ? beginSales(config, tg, range, opts) : undefined;
@@ -565,7 +611,8 @@ export async function handleUpdate(config, tg, text, opts = {}) {
     }
   }
 
-  if (cmd === '/start' || cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config), { reply_markup: MENU });
+  if (cmd === '/start') { await sendDashboard(config, tg); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: MENU }); }
+  if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config), { reply_markup: MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);
   if (cmd === '/quytien') return sendPeriodPicker(tg, '', 'cash', state);
@@ -605,7 +652,8 @@ export async function runBot(config, opts = {}) {
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
   if (config.bot.announceOnStart !== false) {
-    await tg.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Dùng các nút bên dưới để lấy báo cáo.', { reply_markup: MENU }).catch(() => {});
+    await sendDashboard(config, tg).catch(() => {});
+    await tg.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
   }
   if (!opts.once) enableWarmSession(config.bot.keepSessionMinutes ?? 10);
   let offset;
@@ -662,7 +710,7 @@ export async function runBot(config, opts = {}) {
           const work = retries.get(cq.data.slice(2));
           if (work) dispatch(work);
           else await tg.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo ở bàn phím bên dưới.').catch(() => {});
-        } else if (/^[skpqhjmnruvw]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
+        } else if (/^[skpqhjmnruvwz]:/.test(cq.data ?? '') && String(cq.message?.chat?.id) === owner) {
           await tg.call('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
           dispatch(() => handleCallbackData(config, tg, cq.data, opts));
         } else await tg.handleCallback(cq).catch(() => {});
