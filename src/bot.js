@@ -294,7 +294,7 @@ export async function handleStock(config, tg, range, { fresh = false, headed, gr
     await progress.stage('send');
     const ds = data.datasets.ton_kho_nhom;
     if (ds.error?.includes('NO_DATA')) {
-      await tg.sendMessage(`ℹ️ <b>Không có dữ liệu tồn kho — ${escapeHtml(range.label)}</b>${groups.length ? `\n📦 Nhóm VTHH: ${escapeHtml(groups.join(', '))}` : ''}\nAMIS báo "Không có dữ liệu" cho kỳ${cust ? '' : ' và nhóm'} này (không phải lỗi).`);
+      await tg.sendMessage(`ℹ️ <b>Không có dữ liệu tồn kho — ${escapeHtml(range.label)}</b>${groups.length ? `\n📦 Nhóm VTHH: ${escapeHtml(groups.join(', '))}` : ''}\nAMIS báo "Không có dữ liệu" cho kỳ và nhóm này (không phải lỗi).`);
       await progress.finish(true);
       return { message: null };
     }
@@ -305,7 +305,7 @@ export async function handleStock(config, tg, range, { fresh = false, headed, gr
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
-      buildStockMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt, groups, by }),
+      buildStockMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt, groups }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
