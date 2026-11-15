@@ -33,7 +33,8 @@ export function summarizeCost(dataset) {
   for (const r of dataset.rows) {
     const k = String(r.so_tk).trim();
     if (!/^\d{3}$/.test(k)) continue; // chỉ tài khoản cấp 1
-    acc.set(k, { no: Number(r.ps_no) || 0, co: Number(r.ps_co) || 0, name: r.ten_tk });
+    const prev = acc.get(k) ?? { no: 0, co: 0, name: r.ten_tk }; // nhiều sổ: cộng dồn cùng tài khoản
+    acc.set(k, { no: prev.no + (Number(r.ps_no) || 0), co: prev.co + (Number(r.ps_co) || 0), name: r.ten_tk });
   }
   const g = (k) => acc.get(k) ?? { no: 0, co: 0 };
   const closed = g('911').no > 0 || g('911').co > 0; // đã kết chuyển: bút toán sang 911 nằm bên Có của TK chi phí

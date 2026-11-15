@@ -17,7 +17,7 @@ import { buildIncomeMessage } from './income.js';
 import { buildCostMessage, summarizeCost, previousRange, COST_ACCOUNTS } from './cost.js';
 import { readLedger, expenseVouchers, buildVoucherMessage, writeVoucherWorkbook } from './ledger.js';
 import { loadGroups, groupsKey } from './groups.js';
-import { scopeConfig, tenantsOf, defaultTenantId } from './config.js';
+import { scopeConfig, tenantsOf, defaultTenantId, SYSTEM_ID } from './config.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -152,10 +152,11 @@ export function companyDashboard(config, now = new Date()) {
   const top = tenants.find((t) => t.top) ?? tenants[0];
   const others = tenants.filter((t) => t !== top);
   const L = [`🏢 <b>${escapeHtml(top.brand ?? top.name)}</b>`, '<i>Trang tổng · chọn chi nhánh để xem báo cáo</i>', `📅 ${date}`, '━━━━━━━━━━━━━━━━━━'];
-  (top.branches ?? []).forEach((b) => L.push(`${b.icon ?? '🏭'} ${escapeHtml(b.name)}${b.codes.length > 1 ? ' — cộng tất cả chi nhánh' : ''}`));
+  if (others.length) L.push(`🌐 <b>Toàn hệ thống</b> — ${escapeHtml(top.name)} + ${others.map((t) => escapeHtml(t.name)).join(' + ')}`, '');
+  (top.branches ?? []).forEach((b) => L.push(`${b.icon ?? '🏭'} ${escapeHtml(b.name)}${b.codes.length > 1 ? ` — cộng tất cả chi nhánh ${escapeHtml(top.name)}` : ''}`));
   if (others.length) { L.push('', '<b>Sổ dữ liệu riêng</b>'); others.forEach((t) => L.push(`🐉 ${escapeHtml(t.name)}`)); }
   L.push('━━━━━━━━━━━━━━━━━━', '🛡 Chỉ đọc · 🔒 chỉ chủ bot', '👇 Chọn để mở trang báo cáo');
-  const kb = [];
+  const kb = others.length ? [[{ text: '🌐 Toàn hệ thống (gồm cả Quảng Ninh)', callback_data: `z:br:${SYSTEM_ID}:0` }]] : [];
   const br = (top.branches ?? []).map((b, i) => ({ text: `${b.icon ?? '🏭'} ${b.name}`, callback_data: `z:br:${top.id}:${i}` }));
   if (br.length) kb.push([br[0]]);
   for (let i = 1; i < br.length; i += 2) kb.push(br.slice(i, i + 2));
@@ -274,7 +275,7 @@ const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi
 export async function beginSales(config, tg, range, opts = {}) {
   const state = opts.state ?? defaultState;
   const mode = opts.mode ?? state.mode ?? 'sales';
-  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin', 'cost'].includes(mode) ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
+  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin', 'cost'].includes(mode) || config.system ? [] : loadGroups(config); // toàn hệ thống: mỗi sổ có danh sách nhóm riêng → không lọc nhóm // công nợ không có bước chọn Nhóm VTHH
   if (!list.length) return runReport(config, tg, mode, range, opts); // chưa có danh sách nhóm → lấy tất cả
   state.pick = { range, list, selected: new Set(), mode };
   await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
@@ -583,13 +584,15 @@ export async function handleCostVouchers(config, tg, account, range, { fresh = f
   try {
     const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period: { ...range, today: resolvePeriod('today').today }, sourceIds: ['so_chi_tiet_tk'], fileKeys: { so_chi_tiet_tk: fileKey } });
     const ds = data.datasets.so_chi_tiet_tk;
-    const src = ds.file;
-    if (!src || !fs.existsSync(src)) {
+    const srcs = (ds.files ?? [ds.file]).filter((f) => f && fs.existsSync(f));
+    if (!srcs.length) {
       await tg.sendMessage(`⚠️ <b>Không lấy được sổ chi tiết tài khoản — ${escapeHtml(label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
       await progress.finish(false);
       return { message: null, failed: true };
     }
-    const vouchers = expenseVouchers(await readLedger(src), account);
+    const ledger = new Map();
+    for (const f of srcs) for (const [k, v] of await readLedger(f)) ledger.set(k, [...(ledger.get(k) ?? []), ...v]); // nhiều sổ: nối chứng từ
+    const vouchers = expenseVouchers(ledger, account);
     await progress.stage('send');
     const message = buildVoucherMessage({ account, name, label, period: range, vouchers });
     await tg.sendMessage(message);
@@ -1046,7 +1049,7 @@ export async function runBot(config, opts = {}) {
           await answer();
           if (chat !== owner) { await t.sendMessage('Chỉ chủ bot chọn được công ty / chi nhánh, trong chat riêng với bot.').catch(() => {}); continue; }
           const [, kind2, tid, bi] = cq.data.split(':');
-          const ten = tenantsOf(config).find((x) => x.id === tid);
+          const ten = tid === SYSTEM_ID ? { id: SYSTEM_ID } : tenantsOf(config).find((x) => x.id === tid);
           if (kind2 === 'br' && ten && (+bi === 0 || ten.branches?.[+bi])) {
             Object.assign(ctx(chat).state, { tenant: tid, branch: +bi || 0 });
             await sendDashboard(cfgOf(chat), t, { ownerPrivate: true }).catch(() => {});

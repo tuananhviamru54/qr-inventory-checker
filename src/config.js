@@ -54,7 +54,14 @@ function readEnvFile(file) {
  * Phạm vi xem = công ty + chi nhánh (nếu sổ có nhiều chi nhánh). Mỗi chi nhánh có thư mục tải về riêng để số liệu đã lưu không lẫn nhau;
  * mã chi nhánh được bot chọn trong ô "Chi nhánh" của từng báo cáo AMIS.
  */
+export const SYSTEM_ID = 'all';
 export function scopeConfig(config, tenantId, branchIndex) {
+  if (tenantId === SYSTEM_ID) { // Toàn hệ thống: mọi công ty, mỗi công ty ở phạm vi rộng nhất (chi nhánh đầu = toàn công ty)
+    const subs = tenantsOf(config).map((t) => scopeConfig(config, t.id, 0));
+    const def = tenantConfig(config, defaultTenantId(config));
+    return { ...def, tenant: SYSTEM_ID, tenantName: 'Toàn hệ thống', branchName: `Toàn hệ thống (${subs.map((x) => x.tenantName).join(' + ')})`, system: subs,
+      secrets: { ...def.secrets, targetDb: subs.map((x) => x.secrets.targetDb).filter(Boolean).join(' + ') }, dirs: { ...def.dirs, downloads: path.join(def.dirs.downloads, '_system') } };
+  }
   const c = tenantConfig(config, tenantId);
   const t = tenantsOf(config).find((x) => x.id === c.tenant);
   const b = t?.branches?.[branchIndex ?? 0];

@@ -44,7 +44,12 @@ export function buildIncomeMessage({ label, period, targetDb, dataset, updatedAt
   const missing = ['ma_so', 'ky_nay', 'ky_truoc'].filter((f) => dataset.missingFields.includes(f));
   if (missing.length) { L.push(`⚠️ Báo cáo AMIS thiếu cột (${missing.join(', ')}) — kiểm tra "headers" của nguồn kqkd trong config.json.`); return L.join('\n'); }
 
-  const by = new Map(dataset.rows.map((r) => [String(r.ma_so).trim().padStart(2, '0'), r]));
+  const by = new Map();
+  for (const r of dataset.rows) { // nhiều sổ: cộng dồn cùng mã số
+    const k = String(r.ma_so).trim().padStart(2, '0');
+    const p = by.get(k);
+    by.set(k, p ? { ...p, ky_nay: (Number(p.ky_nay) || 0) + (Number(r.ky_nay) || 0), ky_truoc: (Number(p.ky_truoc) || 0) + (Number(r.ky_truoc) || 0) } : r);
+  }
   const v = (code, col) => Number(by.get(code)?.[col]) || 0;
   L.push('<i>Kỳ này · so với kỳ trước</i>', '━━━━━━━━━━━━━━━━━━');
   for (const [code, icon, name, strong] of ITEMS) {

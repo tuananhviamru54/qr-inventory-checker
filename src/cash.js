@@ -17,14 +17,21 @@ const dmy = (s) => { if (/^\d\d\/\d\d/.test(s ?? '')) return s.slice(0, 5); cons
 
 /** Tóm tắt sổ quỹ tiền mặt: đầu kỳ, thu, chi, cuối kỳ, các lần quỹ âm. */
 export function summarizeCash(dataset) {
-  const rows = dataset.rows;
-  const openRow = rows.find(isOpening);
-  const tx = rows.filter((r) => !isOpening(r));
-  const opening = openRow ? openRow.ton : 0;
+  // Toàn hệ thống: các dòng đến từ nhiều sổ (_book) → tính đầu kỳ / số tồn cuối riêng từng sổ rồi cộng
+  const books = [...new Set(dataset.rows.map((r) => r._book ?? 0))];
+  let opening = 0, lastTon = 0;
+  for (const b of books) {
+    const rows = dataset.rows.filter((r) => (r._book ?? 0) === b);
+    const openRow = rows.find(isOpening);
+    const txb = rows.filter((r) => !isOpening(r));
+    const o = openRow ? openRow.ton : 0;
+    opening += o;
+    lastTon += txb.length ? txb.at(-1).ton : o;
+  }
+  const tx = dataset.rows.filter((r) => !isOpening(r));
   const thu = sum(tx, 'no'), chi = sum(tx, 'co');
   const closing = opening + thu - chi;
-  const lastTon = tx.length ? tx.at(-1).ton : opening;
-  const negatives = tx.filter((r) => r.ton < 0);
+  const negatives = books.length > 1 ? [] : tx.filter((r) => r.ton < 0); // số tồn từng dòng chỉ có nghĩa trong 1 sổ
   return { opening, thu, chi, closing, lastTon, tx, negatives, lowest: negatives.length ? Math.min(...negatives.map((r) => r.ton)) : null };
 }
 

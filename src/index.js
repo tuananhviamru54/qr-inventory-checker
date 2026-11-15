@@ -70,7 +70,53 @@ function setConcurrentHandler(session, config, tg) {
  * @param opts.download  false = dùng lại file đã có trong thư mục downloads/
  * @param opts.onStage   hàm nhận tên giai đoạn ('login' | 'export' | 'reuse' | 'check') để hiển thị tiến độ
  */
-export async function collect(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {}, vars = {} } = {}) {
+export async function collect(config, opts = {}) {
+  if (config.system?.length) return collectSystem(config, opts);
+  return collectOne(config, opts);
+}
+
+/**
+ * Phạm vi "Toàn hệ thống": lấy cùng báo cáo ở từng công ty/sổ (mỗi sổ đăng nhập tài khoản của nó), rồi gộp:
+ * nối các dòng (đánh dấu _book = sổ nào), cộng dòng "Tổng cộng", gộp số liệu giám sát. Các báo cáo tự cộng theo mã nên mã trùng được cộng dồn.
+ */
+async function collectSystem(config, opts) {
+  const parts = [];
+  for (const sub of config.system) {
+    const fileKeys = Object.fromEntries(Object.entries(opts.fileKeys ?? {}).map(([k, v]) => [k, v]));
+    const reuse = opts.download === false || Object.values(fileKeys).every((k) => fileAgeOf(sub, k) <= (config.bot?.maxDataAgeMinutes ?? 30));
+    parts.push({ sub, data: await collectOne(sub, { ...opts, fileKeys, download: !reuse }) });
+  }
+  const datasets = {};
+  for (const id of Object.keys(parts[0].data.datasets)) {
+    const list = parts.map((p, i) => ({ ...p.data.datasets[id], _book: i, _name: p.sub.tenantName }));
+    const ok = list.filter((d) => d.rows && !d.error && !d.missing);
+    const errs = list.filter((d) => d.error && !d.error.includes('NO_DATA') || d.missing);
+    if (!ok.length) { datasets[id] = errs[0] ?? list[0]; continue; }
+    // thiếu 1 sổ thì con số "toàn hệ thống" sẽ sai → báo lỗi rõ thay vì gửi số thiếu
+    if (errs.length) { datasets[id] = { id, name: ok[0].name, error: `Không gộp được toàn hệ thống vì thiếu số liệu: ${errs.map((d) => `${d._name}: ${d.error ?? 'chưa có dữ liệu'}`).join('; ')}` }; continue; }
+    const totals = ok.every((d) => d.totals) ? ok.reduce((t, d) => { for (const [k, v] of Object.entries(d.totals)) if (typeof v === 'number') t[k] = (t[k] ?? 0) + v; return t; }, { ...ok[0].totals }) : null;
+    if (totals) for (const [k, v] of Object.entries(ok[0].totals)) if (typeof v === 'number') totals[k] = ok.reduce((s, d) => s + (d.totals[k] || 0), 0);
+    datasets[id] = {
+      id, name: ok[0].name, file: ok[0].file, files: ok.map((d) => d.file),
+      rows: ok.flatMap((d) => d.rows.map((r) => ({ ...r, _book: d._book }))),
+      missingFields: [...new Set(ok.flatMap((d) => d.missingFields))], totals,
+    };
+  }
+  const sups = parts.map((p) => p.data.supervision).filter(Boolean);
+  const supervision = sups.length ? sups.reduce((a, b) => {
+    const m = { ...a };
+    for (const k of ['requests', 'denied', 'clicks', 'clicksDenied', 'fills', 'aiCalls', 'aiErrors']) m[k] = (a[k] ?? 0) + (b[k] ?? 0);
+    m.deniedList = [...(a.deniedList ?? []), ...(b.deniedList ?? [])];
+    return m;
+  }) : null;
+  return { period: parts[0].data.period, datasets, results: [], blocked: parts.flatMap((p) => p.data.blocked ?? []), supervision };
+}
+const fileAgeOf = (config, key) => {
+  const f = findDownloaded(config.dirs.downloads, key);
+  return f ? (Date.now() - fs.statSync(f).mtimeMs) / 60000 : Infinity;
+};
+
+async function collectOne(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {}, vars = {} } = {}) {
   const period = periodOverride ?? resolvePeriod(config.period);
   const datasets = {};
   // mặc định bỏ qua các nguồn onDemand (ví dụ báo cáo doanh số chỉ lấy khi được yêu cầu)

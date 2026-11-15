@@ -76,3 +76,23 @@ test('trang tổng công ty: chi nhánh trước (Toàn công ty ở đầu), s�
   assert.notEqual(a.dirs.downloads, all.dirs.downloads);
   assert.equal(scopeConfig(config, 'qn', 0).branchCodes, undefined);
 });
+
+test('toàn hệ thống: quỹ tiền tính đầu kỳ/cuối kỳ từng sổ rồi cộng; chi phí và B02 cộng dồn cùng mã', async () => {
+  const { summarizeCash } = await import('../src/cash.js');
+  const { summarizeCost } = await import('../src/cost.js');
+  const { buildIncomeMessage } = await import('../src/income.js');
+  const c = summarizeCash({ rows: [
+    { _book: 0, dien_giai: 'Số dư đầu kỳ', no: 0, co: 0, ton: 100 }, { _book: 0, dien_giai: 'Thu', no: 50, co: 0, ton: 150 },
+    { _book: 1, dien_giai: 'Số dư đầu kỳ', no: 0, co: 0, ton: 1000 }, { _book: 1, dien_giai: 'Chi', no: 0, co: 300, ton: 700 }] });
+  assert.deepEqual([c.opening, c.thu, c.chi, c.closing, c.lastTon], [1100, 50, 300, 850, 850]);
+  const k = summarizeCost({ rows: [{ so_tk: '632', ps_no: 100, ps_co: 0 }, { so_tk: '632', ps_no: 50, ps_co: 0 }, { so_tk: '511', ps_no: 0, ps_co: 400 }] });
+  assert.equal(k.items['632'], 150);
+  const r = (ma, a) => ({ ma_so: ma, ky_nay: a, ky_truoc: 0 });
+  const msg = buildIncomeMessage({ label: 'x', period: { fromDate: 'a', toDate: 'b' }, dataset: { missingFields: [], rows: [r('10', 100), r('10', 200), r('60', 30), r('60', 40)] } });
+  assert.match(msg, /Doanh thu thuần<\/b>: <b>300 đ/);
+  assert.match(msg, /LỢI NHUẬN SAU THUẾ<\/b>: <b>70 đ/);
+  const { scopeConfig } = await import('../src/config.js');
+  const sys = scopeConfig({ root: os.tmpdir(), dirs: { downloads: '/d', profile: '/p', output: '/o' }, secrets: { targetDb: 'A' }, sources: [], tenants: [{ id: 'a', name: 'A', default: true }, { id: 'b', name: 'B', envFile: '.x', targetDb: 'SỔ B', branches: [{ name: 'Toàn công ty', codes: ['X', 'Y'] }] }] }, 'all', 0);
+  assert.deepEqual(sys.system.map((x) => [x.tenant, x.branchCodes ?? null]), [['a', null], ['b', ['X', 'Y']]]);
+  assert.equal(sys.secrets.targetDb, 'A + SỔ B');
+});
