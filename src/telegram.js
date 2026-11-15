@@ -1,6 +1,11 @@
 // Gửi tin nhắn / file về Telegram qua Bot API.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
+
+// Trong môi trường có proxy (HTTPS_PROXY) thì đi qua proxy; không có thì dùng fetch mặc định.
+const dispatcher = process.env.HTTPS_PROXY ? new ProxyAgent(process.env.HTTPS_PROXY) : undefined;
+const doFetch = (url, opts) => (dispatcher && !/^https?:\/\/(127\.|localhost)/.test(url) ? undiciFetch(url, { ...opts, dispatcher }) : fetch(url, opts));
 
 export class Telegram {
   constructor({ token, chatId, apiBase }) {
@@ -16,7 +21,7 @@ export class Telegram {
     for (let attempt = 1; ; attempt++) {
       let res, data;
       try {
-        res = await fetch(`${this.base}/${method}`, body instanceof FormData
+        res = await doFetch(`${this.base}/${method}`, body instanceof FormData
           ? { method: 'POST', body }
           : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         data = await res.json().catch(() => ({}));

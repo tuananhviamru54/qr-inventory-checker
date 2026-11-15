@@ -21,6 +21,7 @@
     "@anthropic-ai/sdk": "^1.8.0",
     "exceljs": "^4.4.0",
     "playwright": "^1.48.0",
+    "undici": "^8.12.4",
     "zod": "^4.6.7"
   }
 }
