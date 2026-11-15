@@ -67,7 +67,7 @@ test('trang tổng công ty: chi nhánh trước (Toàn công ty ở đầu), s�
     { id: 'tf', name: 'The Five', brand: 'CÔNG TY THE FIVE', top: true, envFile: '.khong-co', branches: [{ name: 'Toàn công ty', icon: '🏢', codes: ['A', 'B'] }, { name: 'Kho A', codes: ['A'] }, { name: 'Kho B', codes: ['B'] }] }] };
   const { caption, reply_markup } = companyDashboard(config, new Date('2026-11-15T03:00:00Z'));
   assert.match(caption, /^🏢 <b>CÔNG TY THE FIVE<\/b>/);
-  assert.ok(caption.indexOf('Toàn công ty') < caption.indexOf('Kho A') && caption.indexOf('Kho B') < caption.indexOf('Kho Quảng Ninh'));
+  assert.ok(caption.indexOf('Toàn công ty') < caption.indexOf('Kho A') && caption.indexOf('Kho B') < caption.lastIndexOf('Kho Quảng Ninh'));
   const data = reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
   assert.deepEqual(data, ['z:br:all:0', 'z:br:tf:0', 'z:br:tf:1', 'z:br:tf:2', 'z:br:qn:0']);
   assert.match(caption, /Toàn hệ thống<\/b> — The Five \+ Kho Quảng Ninh/);
