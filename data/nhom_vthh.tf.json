@@ -1,0 +1,182 @@
+[
+  {
+    "code": "ALU",
+    "name": "ALU",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "BM",
+    "name": "BẢNG MÀU",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "CCDC",
+    "name": "Công cụ dụng cụ",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "ĐỆM ĐẦU GIƯỜNG",
+    "name": "ĐỆM ĐẦU GIƯỜNG",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "DV",
+    "name": "Dịch vụ",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "GIA CÔNG",
+    "name": "Gia công",
+    "level": 1,
+    "parent": "DV"
+  },
+  {
+    "code": "ECOSTAR",
+    "name": "Nhựa ECOSTAR",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "ECO+",
+    "name": "ECO+",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "ECO",
+    "name": "NHỰA ECO",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "HH",
+    "name": "Hàng hóa",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "GƯƠNG",
+    "name": "GƯƠNG",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "GLODEN",
+    "name": "GLODEN",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "Mẫu",
+    "name": "Mẫu",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "LUX",
+    "name": "LUX",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "LS",
+    "name": "lam Sóng",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "NC ECO+",
+    "name": "NC ECO+",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "NC ECO",
+    "name": "NC ECO",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "NBĐ",
+    "name": "NẸP BỊT ĐẦU",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "NVL",
+    "name": "Nguyên vật liệu",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "NPVC",
+    "name": "NẸP PVC",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "NC PRIZO",
+    "name": "NC PRIZO",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "PKK",
+    "name": "PHỤ KIỆN KHÁC",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "PKB",
+    "name": "PHỤ KIỆN BẾP",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "PENCO",
+    "name": "PENCO",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "TP",
+    "name": "Thành phẩm",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "TO",
+    "name": "Tấm Ốp",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "PRIZO",
+    "name": "PRIZO",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "TTT",
+    "name": "TẤM THEN TRE",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "TPVC",
+    "name": "TẤM PVC",
+    "level": 0,
+    "parent": null
+  },
+  {
+    "code": "TPET",
+    "name": "TẤM THAN TRE PHỦ PET",
+    "level": 0,
+    "parent": null
+  }
+]
