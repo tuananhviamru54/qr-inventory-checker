@@ -25,6 +25,44 @@ export function telegramOf(config) {
   return new Telegram({ token: s.telegramToken, chatId: s.telegramChatId, apiBase: s.telegramApiBase });
 }
 
+// ---- Phiên AMIS giữ ấm (chế độ bot): giữ trình duyệt đã đăng nhập thêm vài phút để các yêu cầu kế tiếp không phải đăng nhập lại ----
+let warmMinutes = 0;
+let warm = null; // { session, timer }
+export function enableWarmSession(minutes) { warmMinutes = Number(minutes) || 0; }
+function takeWarmSession() {
+  if (!warm) return null;
+  const { session, timer } = warm;
+  clearTimeout(timer);
+  warm = null;
+  if (session.alive()) return session;
+  session.close().catch(() => {});
+  return null;
+}
+function keepWarmSession(session) {
+  const timer = setTimeout(() => { if (warm?.session === session) { warm = null; session.close().catch(() => {}); } }, warmMinutes * 60000);
+  timer.unref?.();
+  warm = { session, timer };
+}
+export async function closeWarmSession() {
+  const session = takeWarmSession();
+  if (session) await session.close().catch(() => {});
+}
+/** Số liệu giám sát của riêng lượt này (phiên giữ ấm cộng dồn qua nhiều lượt). */
+function supervisionDelta(now, before) {
+  if (!now || !before) return now ?? null;
+  const d = { ...now };
+  for (const k of ['requests', 'denied', 'clicks', 'clicksDenied', 'fills', 'aiCalls', 'aiErrors']) d[k] = (now[k] ?? 0) - (before[k] ?? 0);
+  d.deniedList = (now.deniedList ?? []).slice(before.deniedList?.length ?? 0);
+  return d;
+}
+function setConcurrentHandler(session, config, tg) {
+  if (!tg) { session.onConcurrent = null; return; }
+  const timeoutMs = config.amis.concurrentDecisionMs ?? 600000;
+  session.onConcurrent = (detail) => tg.ask(
+    `🚨 <b>${escapeHtml(config.title)}</b>\nAMIS báo tài khoản đang được dùng ở nơi khác:\n<i>${escapeHtml(detail)}</i>\n\nNếu đăng nhập tiếp, người đang dùng sẽ bị <b>đăng xuất khỏi AMIS</b> (có thể mất dữ liệu đang nhập dở).\nBạn muốn bot đăng nhập tiếp không? Không trả lời trong ${Math.round(timeoutMs / 60000) || '<1'} phút, bot tự huỷ.`,
+    { timeoutMs });
+}
+
 /**
  * Lấy dữ liệu và chạy kiểm tra chéo (chưa gửi gì).
  * @param opts.download  false = dùng lại file đã có trong thư mục downloads/
@@ -43,18 +81,31 @@ export async function collect(config, { download = true, headed = false, log = c
   // 1. Tải báo cáo từ AMIS
   if (download && amisSources.length) {
     await onStage('login');
-    const session = new AmisSession(config, { headed, log });
-    if (tg) {
-      const timeoutMs = config.amis.concurrentDecisionMs ?? 600000;
-      session.onConcurrent = (detail) => tg.ask(
-        `🚨 <b>${escapeHtml(config.title)}</b>\nAMIS báo tài khoản đang được dùng ở nơi khác:\n<i>${escapeHtml(detail)}</i>\n\nNếu đăng nhập tiếp, người đang dùng sẽ bị <b>đăng xuất khỏi AMIS</b> (có thể mất dữ liệu đang nhập dở).\nBạn muốn bot đăng nhập tiếp không? Không trả lời trong ${Math.round(timeoutMs / 60000) || '<1'} phút, bot tự huỷ.`,
-        { timeoutMs });
-    }
-    try {
-      await session.open();
-      await session.login(config.secrets);
-      await session.verifyDatabase(config.secrets.targetDb);
+    for (let attempt = 1; ; attempt++) {
+      // Phiên giữ ấm (chỉ ở chế độ bot): dùng lại trình duyệt đã đăng nhập của lượt trước → bỏ qua khởi động + đăng nhập.
+      let session = takeWarmSession();
+      const reused = !!session;
+      try {
+        if (!session) {
+          session = new AmisSession(config, { headed, log });
+          await session.open();
+          setConcurrentHandler(session, config, tg);
+          await session.login(config.secrets);
+          await session.verifyDatabase(config.secrets.targetDb);
+        } else setConcurrentHandler(session, config, tg);
+      } catch (e) {
+        const shot = session.page ? await session.screenshot('loi-dang-nhap') : null;
+        await session.close();
+        if (tg) {
+          await tg.sendMessage(`🚨 <b>${escapeHtml(config.title)}</b>\nKhông lấy được báo cáo từ AMIS:\n${escapeHtml(e.message)}`);
+          if (shot) await tg.sendFile(shot, 'Màn hình lúc lỗi', 'sendPhoto').catch(() => {});
+        }
+        throw e;
+      }
+      const blockedFrom = session.audit?.blocked.length ?? 0;
+      const before = reused ? await session.supervisor.summary().catch(() => null) : null;
       await onStage('export');
+      const errors = {};
       for (const src of amisSources) {
         log(`→ Xuất báo cáo: ${src.name}`);
         try {
@@ -62,22 +113,30 @@ export async function collect(config, { download = true, headed = false, log = c
           log(`✓ Đã lưu ${path.relative(config.root, files[src.id])}`);
         } catch (e) {
           const shot = await session.screenshot(`loi-${src.id}`);
-          datasets[src.id] = { id: src.id, name: src.name, error: e.message, screenshot: shot };
+          errors[src.id] = { id: src.id, name: src.name, error: e.message, screenshot: shot };
           log(`✗ ${e.message}`);
         }
       }
-    } catch (e) {
-      const shot = session.page ? await session.screenshot('loi-dang-nhap') : null;
-      await session.close();
-      if (tg) {
-        await tg.sendMessage(`🚨 <b>${escapeHtml(config.title)}</b>\nKhông lấy được báo cáo từ AMIS:\n${escapeHtml(e.message)}`);
-        if (shot) await tg.sendFile(shot, 'Màn hình lúc lỗi', 'sendPhoto').catch(() => {});
+      // Phiên giữ ấm có thể đã hết hạn / bị đăng xuất: lỗi (không phải "không có dữ liệu") thì đóng và làm lại 1 lần bằng phiên mới.
+      if (reused && attempt === 1 && Object.values(errors).some((d) => !d.error.includes('NO_DATA'))) {
+        log('→ Phiên giữ ấm không còn dùng được, đăng nhập lại…');
+        await session.close();
+        await onStage('login');
+        continue;
       }
-      throw e;
+      Object.assign(datasets, errors);
+      blocked = session.audit?.blocked.slice(blockedFrom) ?? [];
+      if (warmMinutes > 0 && session.alive()) {
+        supervision = supervisionDelta(await session.supervisor.summary().catch(() => null), before);
+        await session.flushAudit();
+        await session.page.goto('about:blank').catch(() => {}); // không để trang AMIS chạy nền trong lúc chờ
+        keepWarmSession(session);
+      } else {
+        await session.close();
+        supervision = supervisionDelta(session.supervision, before);
+      }
+      break;
     }
-    blocked = session.audit?.blocked ?? [];
-    await session.close();
-    supervision = session.supervision;
   } else {
     await onStage('reuse');
   }
@@ -111,6 +170,7 @@ export async function collect(config, { download = true, headed = false, log = c
 export async function refreshGroups(config, { tg = null, log = () => {} } = {}) {
   const src = config.sources.find((x) => x.id === 'doanh_so');
   if (!src?.groups) throw new Error('Nguồn doanh_so chưa khai báo "groups" trong config.json');
+  await closeWarmSession(); // dùng chung hồ sơ trình duyệt nên phải đóng phiên giữ ấm trước
   const session = new AmisSession(config, { log });
   if (tg) {
     const timeoutMs = config.amis.concurrentDecisionMs ?? 600000;

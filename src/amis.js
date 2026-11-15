@@ -49,11 +49,21 @@ export class AmisSession {
     this.page = this.context.pages()[0] ?? await this.context.newPage();
   }
 
+  /** Ghi nhật ký các yêu cầu không phải GET ra file rồi xoá khỏi bộ nhớ (gọi sau mỗi lượt lấy báo cáo). */
+  async flushAudit() {
+    const items = this.audit?.nonGet.splice(0) ?? [];
+    if (!items.length) return;
+    const lines = items.map((r) => `${r.time}\t${r.blocked ? 'CHAN' : 'cho-qua'}\t${r.method}\t${r.url}\t${r.blocked ?? ''}`);
+    await fs.appendFile(path.join(this.dirs.output, 'nhat-ky-yeu-cau.log'), lines.join('\n') + '\n').catch(() => {});
+  }
+
+  /** Phiên còn dùng được không (trình duyệt chưa đóng, agent giám sát còn sống). */
+  alive() {
+    return !!this.page && !this.page.isClosed() && !this.supervisor?.dead;
+  }
+
   async close() {
-    if (this.audit?.nonGet.length) {
-      const lines = this.audit.nonGet.map((r) => `${r.time}\t${r.blocked ? 'CHAN' : 'cho-qua'}\t${r.method}\t${r.url}\t${r.blocked ?? ''}`);
-      await fs.appendFile(path.join(this.dirs.output, 'nhat-ky-yeu-cau.log'), lines.join('\n') + '\n').catch(() => {});
-    }
+    await this.flushAudit();
     await this.context?.close().catch(() => {});
     this.supervision = await this.supervisor?.summary().catch(() => null) ?? this.supervision ?? null;
     this.supervisor?.stop();
@@ -110,7 +120,7 @@ export class AmisSession {
    * ô mật khẩu / ô OTP (và thấy selectors.loggedIn nếu có cấu hình).
    * @param manualWaitMs  thời gian chờ người dùng tự thao tác (chế độ `login` có giao diện)
    */
-  async login({ username, password, totpSecret, manualWaitMs = 0 } = {}) {
+  async login({ username, password, totpSecret, targetDb, manualWaitMs = 0 } = {}) {
     const { page, sel } = this;
     await page.goto(this.amis.loginUrl ?? this.amis.baseUrl, { waitUntil: 'domcontentloaded' });
     const deadline = Date.now() + Math.max(manualWaitMs, this.amis.loginTimeoutMs ?? 45000);
@@ -139,6 +149,8 @@ export class AmisSession {
           throw new LoginError('AMIS yêu cầu mã xác thực (OTP). Chạy `npm run login` trên máy có màn hình để xác thực 1 lần, hoặc khai báo AMIS_TOTP_SECRET.');
         }
       } else if (!hasPwd) {
+        // Đã đăng nhập sẵn (hồ sơ trình duyệt còn phiên): thấy tên dữ liệu kế toán trên thanh tiêu đề là đủ, không cần chờ thêm.
+        if (!manualWaitMs && targetDb && await page.getByText(targetDb, { exact: true }).first().isVisible().catch(() => false)) { this.log('✓ Đã đăng nhập'); return; }
         const ready = sel.loggedIn ? await this.visible(sel.loggedIn) : (submitted || Date.now() > detectUntil);
         if (ready) {
           clearSince ||= Date.now();
@@ -241,6 +253,7 @@ export class AmisSession {
     };
     for (const [i, step] of source.steps.entries()) {
       const [action, arg] = Object.entries(step)[0];
+      const stepStart = Date.now();
       try {
         switch (action) {
           case 'goto': await page.goto(t(arg), { waitUntil: 'domcontentloaded' }); break;
@@ -406,6 +419,7 @@ export class AmisSession {
           }
           default: throw new Error(`Bước không hỗ trợ: ${action}`);
         }
+        if (process.env.STEP_TIMING) this.log(`   · bước ${i + 1} ${action}: ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
       } catch (e) {
         throw new Error(`Báo cáo "${source.name}" lỗi ở bước ${i + 1} (${action}: ${JSON.stringify(arg).slice(0, 90)}): ${e.message.split('\n')[0]}`);
       }

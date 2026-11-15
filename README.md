@@ -71,6 +71,7 @@ thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch
 - Dưới mỗi báo cáo có nút **🔄 Làm mới số liệu này** (luôn lấy lại từ AMIS) và **📅 Chọn kỳ khác**. Cùng một kỳ vừa lấy
   trong 30 phút thì được dùng lại để trả lời nhanh; tin ghi rõ giờ lấy số liệu.
 - Bot xử lý từng yêu cầu một nhưng có hàng đợi: bấm nhiều báo cáo liền nhau (tối đa 5 yêu cầu chờ, chỉnh bằng `bot.maxQueue`) thì bot báo "🕒 Đã xếp hàng" rồi làm lần lượt, gửi kết quả theo thứ tự.
+- Ở chế độ bot, trình duyệt đã đăng nhập AMIS được giữ sẵn 10 phút sau mỗi yêu cầu (`bot.keepSessionMinutes`, 0 = tắt) để yêu cầu kế tiếp không phải đăng nhập lại; trong lúc chờ trang AMIS được đóng về trang trống.
 
 ### Ba agent và bot hỏi–đáp
 

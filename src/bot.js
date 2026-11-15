@@ -1,6 +1,6 @@
 // Bot Telegram: nhận câu hỏi/lệnh, hiện tiến độ, trả lời sau khi kế toán trưởng (AI) kiểm soát.
 // Chỉ phục vụ đúng chat TELEGRAM_CHAT_ID; tin từ chat khác bị bỏ qua.
-import { collect, dataAgeMinutes, fileAgeMinutes, refreshGroups, runPipeline, telegramOf } from './index.js';
+import { collect, dataAgeMinutes, enableWarmSession, fileAgeMinutes, refreshGroups, runPipeline, telegramOf } from './index.js';
 import { Progress } from './progress.js';
 import { aiEnabled, describeAiError } from './ai.js';
 import { draftAnswer } from './agents/answer.js';
@@ -545,6 +545,7 @@ export async function runBot(config, opts = {}) {
   if (config.bot.announceOnStart !== false) {
     await tg.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Dùng các nút bên dưới để lấy báo cáo.', { reply_markup: MENU }).catch(() => {});
   }
+  if (!opts.once) enableWarmSession(config.bot.keepSessionMinutes ?? 10);
   let offset;
   let busy = false;
   tg.pollerActive = true; // vòng lặp này nhận cả lần bấm nút (ví dụ quyết định đăng nhập tiếp)
