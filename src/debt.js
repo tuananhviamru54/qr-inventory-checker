@@ -22,7 +22,7 @@ export const DEBT_KINDS = {
 /** Số dư theo chiều của loại công nợ: phải thu = Nợ − Có; phải trả = Có − Nợ. */
 const bal = (kind, r, pos) => (kind.side === 'no' ? (r[`${pos}_no`] - r[`${pos}_co`]) : (r[`${pos}_co`] - r[`${pos}_no`]));
 
-export function buildDebtMessage({ kind: kindKey, label, period, targetDb, dataset, updatedAt, top = 10 }) {
+export function buildDebtMessage({ kind: kindKey, label, period, targetDb, dataset, updatedAt, minBalance = 100000 }) {
   const kind = DEBT_KINDS[kindKey];
   const lines = [`${kind.icon} <b>${kind.title} — ${escapeHtml(label)}</b>`, `🗓 ${period.fromDate === period.toDate ? period.fromDate : `${period.fromDate} – ${period.toDate}`} · TK ${kind.account}${targetDb ? ` · 🗄 ${escapeHtml(targetDb)}` : ''}`];
   if (updatedAt) lines.push(`🕒 Số liệu AMIS lấy lúc ${updatedAt}`);
@@ -48,15 +48,18 @@ export function buildDebtMessage({ kind: kindKey, label, period, targetDb, datas
   const others = rows.filter((r) => own(r) < 0);
   lines.push(`${rows.length} ${kind.who} có số dư/phát sinh · còn dư ${kind.openSide}: ${holders.length}${others.length ? ` · dư bên ${kind.otherSide} (${kind.otherNote}): ${others.length} (${vnd(-others.reduce((s, r) => s + own(r), 0))})` : ''}`);
 
-  const best = [...holders].sort((a, b) => own(b) - own(a)).slice(0, top);
+  const total = holders.reduce((s, r) => s + own(r), 0);
+  const best = holders.filter((r) => own(r) >= minBalance).sort((a, b) => own(b) - own(a));
   if (best.length) {
-    lines.push('', `<b>Top ${best.length} ${kind.who} theo dư cuối kỳ</b>`);
-    const total = holders.reduce((s, r) => s + own(r), 0);
+    const subtotal = best.reduce((s, r) => s + own(r), 0);
+    lines.push('', `<b>${best.length} ${kind.who} có dư cuối kỳ từ ${vnd(minBalance)} trở lên</b> (cộng ${vnd(subtotal)})`);
     best.forEach((r, i) => {
       const pct = total ? ` (${((own(r) / total) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%)` : '';
       lines.push(`${i + 1}. <code>${escapeHtml(r.ma_doi_tuong)}</code> ${escapeHtml(r.ten_doi_tuong ?? '')} — ${vnd(own(r))}${pct}`);
     });
-  }
+    const small = holders.length - best.length;
+    if (small) lines.push(`(Còn ${small} ${kind.who} dư dưới ${vnd(minBalance)}: ${vnd(total - subtotal)})`);
+  } else lines.push('', `Không có ${kind.who} nào dư cuối kỳ từ ${vnd(minBalance)} trở lên.`);
 
   // Tự đối chiếu để người đọc biết con số đáng tin
   lines.push('');

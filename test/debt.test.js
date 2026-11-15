@@ -8,7 +8,7 @@ const row = (ma, dkn, dkc, psn, psc, ckn, ckc) => ({ ma_doi_tuong: ma, ten_doi_t
 test('công nợ phải thu: dư = Nợ − Có, top khách, đối chiếu khớp', () => {
   const rows = [row('K1', 100, 0, 50, 20, 130, 0), row('K2', 0, 0, 10, 40, 0, 30)];
   const dataset = { missingFields: [], rows, totals: row('Tổng cộng', 100, 0, 60, 60, 130, 30) };
-  const msg = buildDebtMessage({ kind: 'receivable', label: 'x', period, dataset });
+  const msg = buildDebtMessage({ kind: 'receivable', label: 'x', period, dataset, minBalance: 0 });
   assert.match(msg, /Dư cuối kỳ<\/b>: 100 đ/);
   assert.match(msg, /K1/);
   assert.match(msg, /dư bên Có/);
@@ -33,4 +33,12 @@ test('công nợ: cảnh báo khi tổng lệch dòng "Tổng cộng" của AMIS
 test('công nợ: thiếu cột thì báo rõ', () => {
   const msg = buildDebtMessage({ kind: 'receivable', label: 'x', period, dataset: { missingFields: ['ck_no'], rows: [], totals: null } });
   assert.match(msg, /thiếu cột/);
+});
+
+test('công nợ: chỉ liệt kê đối tượng dư từ 100.000 đ trở lên, đủ danh sách', () => {
+  const rows = [row('A', 0, 0, 500000, 0, 500000, 0), row('B', 0, 0, 100000, 0, 100000, 0), row('C', 0, 0, 99999, 0, 99999, 0)];
+  const msg = buildDebtMessage({ kind: 'receivable', label: 'x', period, dataset: { missingFields: [], rows, totals: null } });
+  assert.match(msg, /2 khách hàng có dư cuối kỳ từ 100\.000 đ/);
+  assert.match(msg, /<code>A<\/code>/); assert.match(msg, /<code>B<\/code>/); assert.doesNotMatch(msg, /<code>C<\/code>/);
+  assert.match(msg, /Còn 1 khách hàng dư dưới/);
 });
