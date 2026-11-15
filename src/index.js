@@ -30,9 +30,10 @@ export function telegramOf(config) {
 let warmMinutes = 0;
 let warm = null; // { session, timer }
 export function enableWarmSession(minutes) { warmMinutes = Number(minutes) || 0; }
-function takeWarmSession() {
+function takeWarmSession(profile) {
   if (!warm) return null;
   const { session, timer } = warm;
+  if (profile && session.dirs?.profile !== profile) { clearTimeout(timer); warm = null; session.close().catch(() => {}); return null; } // phiên của công ty khác
   clearTimeout(timer);
   warm = null;
   if (session.alive()) return session;
@@ -84,7 +85,7 @@ export async function collect(config, { download = true, headed = false, log = c
     await onStage('login');
     for (let attempt = 1; ; attempt++) {
       // Phiên giữ ấm (chỉ ở chế độ bot): dùng lại trình duyệt đã đăng nhập của lượt trước → bỏ qua khởi động + đăng nhập.
-      let session = takeWarmSession();
+      let session = takeWarmSession(config.dirs.profile);
       const reused = !!session;
       try {
         if (!session) {

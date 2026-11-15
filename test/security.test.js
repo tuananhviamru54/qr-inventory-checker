@@ -40,3 +40,21 @@ test('siết quyền file bí mật và xoay vòng nhật ký', { skip: process.
     assert.ok(fs.existsSync(path.join(root, 'output', 'giam-sat.log.1')) && !fs.existsSync(path.join(root, 'output', 'giam-sat.log')));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('nhiều công ty: mỗi công ty có tài khoản, sổ dữ liệu, hồ sơ trình duyệt, thư mục tải về và Nhóm VTHH riêng', async () => {
+  const { tenantConfig, defaultTenantId } = await import('../src/config.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ten-'));
+  try {
+    fs.writeFileSync(path.join(root, '.env.b'), 'MISA_WEB_USERNAME=userB\nMISA_WEB_PASSWORD="p@ss=B"\n');
+    const base = { root, title: 'x', dirs: { profile: path.join(root, '.auth/profile'), downloads: path.join(root, 'downloads'), output: path.join(root, 'output') }, secrets: { username: 'userA', password: 'pA', targetDb: 'KHO A', telegramToken: 't' }, sources: [{ id: 'doanh_so', groups: { file: 'data/nhom_vthh.json' } }],
+      tenants: [{ id: 'a', name: 'A', default: true }, { id: 'b', name: 'B', envFile: '.env.b', targetDb: 'SỔ B' }] };
+    assert.equal(defaultTenantId(base), 'a');
+    const a = tenantConfig(base, 'a'), b = tenantConfig(base, 'b');
+    assert.equal(a.secrets.username, 'userA'); assert.equal(a.dirs.profile, base.dirs.profile);
+    assert.deepEqual([b.secrets.username, b.secrets.password, b.secrets.targetDb, b.secrets.telegramToken], ['userB', 'p@ss=B', 'SỔ B', 't']);
+    assert.equal(b.dirs.profile, path.join(root, '.auth-b/profile'));
+    assert.equal(b.dirs.downloads, path.join(root, 'downloads/b'));
+    assert.equal(b.sources[0].groups.file, 'data/nhom_vthh.b.json');
+    assert.equal(tenantConfig(base, 'khong-co').tenant, 'a'); // mã lạ → công ty mặc định
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

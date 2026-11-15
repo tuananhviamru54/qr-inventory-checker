@@ -1557,5 +1557,23 @@
   ],
   "ai": {
     "enabled": false
-  }
+  },
+  "tenants": [
+    {
+      "id": "qn",
+      "name": "Kho Quảng Ninh",
+      "brand": "TỔNG KHO NHỰA ECOPLAST QUẢNG NINH",
+      "default": true
+    },
+    {
+      "id": "tf",
+      "name": "The Five",
+      "brand": "CÔNG TY TNHH SXTM QUỐC TẾ THE FIVE",
+      "envFile": ".env.misa2",
+      "profile": ".auth-misa2/profile",
+      "downloads": "downloads/tf",
+      "targetDb": "KETOAN THE FIVE T9.2026",
+      "groupsFile": "data/nhom_vthh.tf.json"
+    }
+  ]
 }

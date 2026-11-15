@@ -17,6 +17,7 @@ import { buildIncomeMessage } from './income.js';
 import { buildCostMessage, summarizeCost, previousRange, COST_ACCOUNTS } from './cost.js';
 import { readLedger, expenseVouchers, buildVoucherMessage, writeVoucherWorkbook } from './ledger.js';
 import { loadGroups, groupsKey } from './groups.js';
+import { tenantConfig, tenantsOf, defaultTenantId } from './config.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -63,6 +64,7 @@ export const COMMANDS = [
   { command: 'quytien', description: 'Quỹ tiền: tiền mặt (TK 111) + tiền gửi ngân hàng (TK 112)' },
   { command: 'ketqua', description: 'Kết quả kinh doanh B02 (chỉ chủ bot, chat riêng)' },
   { command: 'chiphi', description: 'Chi phí kỳ này so với kỳ trước (chỉ chủ bot, chat riêng)' },
+  { command: 'congty', description: 'Đổi công ty / sổ dữ liệu AMIS (chỉ chủ bot)' },
   { command: 'capnhatnhom', description: 'Cập nhật danh sách Nhóm VTHH từ AMIS' },
   { command: 'trogiup', description: 'Hướng dẫn sử dụng' },
 ];
@@ -116,7 +118,7 @@ export function dashboardCaption(config, now = new Date()) {
   const date = `${WEEKDAYS[vn.getUTCDay()]}, ${String(vn.getUTCDate()).padStart(2, '0')}/${String(vn.getUTCMonth() + 1).padStart(2, '0')}/${vn.getUTCFullYear()}`;
   const db = config.secrets.targetDb ? ` · 🗄 ${escapeHtml(config.secrets.targetDb)}` : '';
   return [
-    '🐉 <b>TỔNG KHO NHỰA ECOPLAST QUẢNG NINH</b>',
+    `🐉 <b>${escapeHtml(config.brand ?? 'TỔNG KHO NHỰA ECOPLAST QUẢNG NINH')}</b>`,
     `<i>Trung tâm báo cáo MISA AMIS</i>${db}`,
     `📅 ${date}`,
     '━━━━━━━━━━━━━━━━━━',
@@ -135,11 +137,11 @@ export function dashboardCaption(config, now = new Date()) {
   ].join('\n');
 }
 /** Ô bấm trang chủ; chat riêng của chủ bot có thêm ô Kết quả kinh doanh (🔒). */
-export const dashboardKeyboard = (ownerPrivate = false) => (ownerPrivate
-  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả KD 🔒', callback_data: 'f:menu' }, { text: '💸 Chi phí 🔒', callback_data: 'y:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3)] }
+export const dashboardKeyboard = (ownerPrivate = false, multiCompany = false) => (ownerPrivate
+  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả KD 🔒', callback_data: 'f:menu' }, { text: '💸 Chi phí 🔒', callback_data: 'y:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3), ...(multiCompany ? [[{ text: '🏢 Đổi công ty', callback_data: 'z:co' }]] : [])] }
   : DASHBOARD_KEYBOARD);
 export async function sendDashboard(config, tg, { ownerPrivate = false } = {}) {
-  const kb = dashboardKeyboard(ownerPrivate);
+  const kb = dashboardKeyboard(ownerPrivate, (config.tenants?.length ?? 0) > 1);
   const caption = dashboardCaption(config) + (ownerPrivate ? '\n🔒 <i>Riêng bạn: Kết quả kinh doanh · Chi phí</i>' : '');
   try {
     await tg.sendFile(LOGO, caption, 'sendPhoto', { html: true, reply_markup: kb });
@@ -439,7 +441,7 @@ export async function handleDaily(config, tg, { fresh = false, headed, date } = 
     const updatedAt = files.length ? vnTime(Math.min(...files.map((f) => fs.statSync(f).mtimeMs))) : '';
     const failed = Object.values(ds).some((d) => !d || (d.error && !d.error.includes('NO_DATA')) || d.missing);
     const message = [
-      buildDailyMessage({ date: today, targetDb: config.secrets.targetDb, ds, updatedAt }),
+      buildDailyMessage({ date: today, targetDb: config.secrets.targetDb, ds, updatedAt, brand: config.brand }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -878,12 +880,13 @@ export function loadAccess(config) {
     chats: new Set([owner, ...(config.bot.groupChatIds ?? []), ...(saved.chats ?? [])].map(String)),
     users: new Set([owner, ...(config.bot.allowedUserIds ?? []), ...(saved.users ?? [])].map(String)),
     names: saved.names ?? {},
+    tenants: saved.tenants ?? {}, // mã nhóm → công ty
   };
 }
 function saveAccess(config, acc) {
   const file = accessFile(config);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ chats: [...acc.chats].filter((c) => c !== acc.owner), users: [...acc.users].filter((u) => u !== acc.owner), names: acc.names }, null, 2), { mode: 0o600 });
+  fs.writeFileSync(file, JSON.stringify({ chats: [...acc.chats].filter((c) => c !== acc.owner), users: [...acc.users].filter((u) => u !== acc.owner), names: acc.names, tenants: acc.tenants }, null, 2), { mode: 0o600 });
 }
 const personName = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(' ') || u?.username || String(u?.id);
 
@@ -904,12 +907,19 @@ export async function runBot(config, opts = {}) {
     return ctxs.get(id);
   };
   const groups = () => [...acc.chats].filter((c) => c !== owner);
+  // công ty của từng khung chat: chat riêng chủ bot đổi được (/congty); nhóm cố định theo access.tenants (mặc định: công ty mặc định)
+  const cfgCache = new Map();
+  const cfgOf = (chat) => {
+    const id = ctx(chat).state.tenant ?? acc.tenants?.[chat] ?? defaultTenantId(config);
+    if (!cfgCache.has(id)) cfgCache.set(id, tenantConfig(config, id));
+    return cfgCache.get(id);
+  };
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhóm đã bật: ${groups().length ? groups().map((g) => `${acc.names[g] ?? ''} (${g})`).join(', ') : 'chưa có'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
   if (config.bot.announceOnStart !== false) {
     const home = groups()[0] ?? owner; // đã có nhóm → chào trong nhóm
     const h = ctx(home).tg;
-    await sendDashboard(config, h).catch(() => {});
+    await sendDashboard(cfgOf(home), h).catch(() => {});
     await h.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
   }
   if (!opts.once) enableWarmSession(config.bot.keepSessionMinutes ?? 10);
@@ -968,7 +978,7 @@ export async function runBot(config, opts = {}) {
       console.log(`Báo cáo cuối ngày: gửi lúc ${daily.time} (sau ${Math.round(wait / 60000)} phút)`);
       setTimeout(() => {
         const targets = groups().length ? groups() : [owner];
-        targets.forEach((chat, i) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(config, c.tg, { ...c.opts, fresh: i === 0 })); });
+        targets.forEach((chat) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(cfgOf(chat), c.tg, { ...c.opts, fresh: true })); });
         plan();
       }, wait).unref?.();
     };
@@ -992,19 +1002,28 @@ export async function runBot(config, opts = {}) {
         if (/^c:/.test(cq.data ?? '')) {
           await answer();
           const range = await applyCalendar(t, st, cq.data, cq.message.message_id).catch(() => null); // chỉ sửa giao diện → làm ngay cả khi bot đang bận
-          if (range) dispatch(t, () => beginSales(config, t, range, o));
+          if (range) dispatch(t, () => beginSales(cfgOf(chat), t, range, o));
         } else if (/^g:/.test(cq.data ?? '')) {
           await answer();
           const run = await applyGroupPick(t, st, cq.data, cq.message.message_id).catch(() => null);
-          if (run) dispatch(t, () => runReport(config, t, run.mode, run.range, { ...o, groups: run.groups }));
+          if (run) dispatch(t, () => runReport(cfgOf(chat), t, run.mode, run.range, { ...o, groups: run.groups }));
         } else if (/^t:/.test(cq.data ?? '')) {
           await answer();
           const job = retries.get(cq.data.slice(2));
           if (job) dispatch(job.tg, job.work);
           else await t.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo.').catch(() => {});
+        } else if (/^z:co/.test(cq.data ?? '')) { // đổi công ty: chỉ chủ bot trong chat riêng
+          await answer();
+          if (chat !== owner) { await t.sendMessage('Chỉ chủ bot đổi được công ty, trong chat riêng với bot.').catch(() => {}); continue; }
+          const id = cq.data.split(':')[2];
+          if (!id) await t.sendMessage(`🏢 <b>Chọn công ty</b> (đang xem: <b>${escapeHtml(cfgOf(chat).tenantName ?? '')}</b>)`, { reply_markup: { inline_keyboard: tenantsOf(config).map((x) => [{ text: `${x.id === cfgOf(chat).tenant ? '✅ ' : ''}${x.name}`, callback_data: `z:co:${x.id}` }]) } }).catch(() => {});
+          else if (tenantsOf(config).some((x) => x.id === id)) {
+            ctx(chat).state.tenant = id;
+            await sendDashboard(cfgOf(chat), t, { ownerPrivate: true }).catch(() => {});
+          }
         } else if (/^[skpqhjmnruvwzfeyo]:/.test(cq.data ?? '')) {
           await answer();
-          dispatch(t, () => handleCallbackData(config, t, cq.data, o));
+          dispatch(t, () => handleCallbackData(cfgOf(chat), t, cq.data, o));
         } else await t.handleCallback(cq).catch(() => {});
         continue;
       }
@@ -1035,7 +1054,7 @@ export async function runBot(config, opts = {}) {
           console.log(`Đã bật bot trong nhóm "${msg.chat.title}" (${chat})`);
           const t = ctx(chat).tg;
           await t.sendMessage(`✅ Đã bật bot trong nhóm <b>${escapeHtml(msg.chat.title ?? '')}</b>.\nMọi thành viên xem được báo cáo; chỉ người được cấp quyền mới bấm nút/ra lệnh. Báo cáo cuối ngày 17:30 sẽ gửi vào nhóm này.\nChủ bot cấp quyền cho ai: trả lời (reply) 1 tin của người đó bằng /themnguoi.`).catch(() => {});
-          dispatch(t, () => handleUpdate(config, t, '/start', ctx(chat).opts));
+          dispatch(t, () => handleUpdate(cfgOf(chat), t, '/start', ctx(chat).opts));
         } else if (msg.chat.type !== 'private') console.log(`Bỏ qua tin trong nhóm chưa bật: "${msg.chat.title}" (${chat})`);
         else if (!acc.users.has(from)) alertOwner(`dm${from}`, `Người lạ nhắn riêng cho bot: ${describe(msg.from)}.\nBot không trả lời và không cung cấp số liệu nào.`);
         continue;
@@ -1063,7 +1082,8 @@ export async function runBot(config, opts = {}) {
       }
       if (!acc.users.has(from)) continue; // thành viên chưa được cấp quyền: chỉ xem, bot không trả lời
       { const rl = limiter.check(from); if (rl !== 'ok') { if (rl === 'warn') await t.sendMessage('⏳ Bạn gửi lệnh quá nhanh. Chờ 1 phút rồi thử lại.').catch(() => {}); continue; } }
-      dispatch(t, () => handleUpdate(config, t, msg.text, o));
+      if (cmd === '/congty' && chat === owner) { await t.sendMessage('🏢 Chọn công ty:', { reply_markup: { inline_keyboard: tenantsOf(config).map((x) => [{ text: `${x.id === cfgOf(chat).tenant ? '✅ ' : ''}${x.name}`, callback_data: `z:co:${x.id}` }]) } }).catch(() => {}); continue; }
+      dispatch(t, () => handleUpdate(cfgOf(chat), t, msg.text, o));
     }
     if (opts.once) return;
   }

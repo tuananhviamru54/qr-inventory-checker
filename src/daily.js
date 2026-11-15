@@ -32,12 +32,12 @@ const verified = (msg) => msg.includes('✔ Đã đối chiếu'); // các báo 
 /**
  * @param ds  { cash, bank, sales, salesKh, ar, ap, stock } — dataset đã đọc (hoặc {error})
  */
-export function buildDailyMessage({ date, now = new Date(), targetDb, ds, updatedAt, ytdTop = 0 }) {
+export function buildDailyMessage({ date, now = new Date(), targetDb, ds, updatedAt, ytdTop = 0, brand = 'Tổng kho nhựa Ecoplast Quảng Ninh' }) {
   const vn = new Date(now.getTime() + 7 * 3600e3);
   const period = { fromDate: date, toDate: date };
   const L = [
     '📋 <b>BÁO CÁO CUỐI NGÀY</b>',
-    '🐉 <i>Tổng kho nhựa Ecoplast Quảng Ninh</i>',
+    `🐉 <i>${escapeHtml(brand)}</i>`,
     `📅 ${WEEKDAYS[vn.getUTCDay()]}, ${date}${targetDb ? ` · 🗄 ${escapeHtml(targetDb)}` : ''}`,
   ];
   if (updatedAt) L.push(`🕒 Số liệu AMIS lấy lúc ${updatedAt}`);

@@ -40,3 +40,41 @@ export function withDefaults(config, root) {
     },
   };
 }
+
+/** Đọc file KEY=VALUE (không đụng biến môi trường của tiến trình). */
+function readEnvFile(file) {
+  if (!fs.existsSync(file)) return {};
+  return Object.fromEntries(fs.readFileSync(file, 'utf8').split(/\r?\n/).filter((l) => /^\s*[A-Z_][A-Z0-9_]*=/.test(l)).map((l) => {
+    const i = l.indexOf('=');
+    return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^(['"])(.*)\1$/, '$2')];
+  }));
+}
+
+export const tenantsOf = (config) => (config.tenants?.length ? config.tenants : [{ id: 'default', name: config.title, default: true }]);
+export const defaultTenantId = (config) => (tenantsOf(config).find((t) => t.default) ?? tenantsOf(config)[0]).id;
+
+/**
+ * Cấu hình cho 1 công ty (tenant): tài khoản AMIS, sổ dữ liệu, hồ sơ trình duyệt, thư mục tải về và danh sách Nhóm VTHH riêng
+ * → số liệu và phiên đăng nhập của các công ty không bao giờ lẫn nhau. Công ty mặc định dùng nguyên cấu hình gốc (.env).
+ */
+export function tenantConfig(config, id) {
+  const t = tenantsOf(config).find((x) => x.id === id) ?? tenantsOf(config).find((x) => x.default);
+  if (!t || t.default) return { ...config, tenant: t?.id ?? 'default', tenantName: t?.name, brand: t?.brand };
+  const env = readEnvFile(path.resolve(config.root, t.envFile ?? `.env.${t.id}`));
+  const r = (p, d) => path.resolve(config.root, p ?? d);
+  return {
+    ...config,
+    tenant: t.id,
+    tenantName: t.name,
+    brand: t.brand,
+    dirs: { ...config.dirs, profile: r(t.profile, `.auth-${t.id}/profile`), downloads: r(t.downloads, `downloads/${t.id}`) },
+    secrets: {
+      ...config.secrets,
+      username: env.AMIS_USERNAME || env.MISA_WEB_USERNAME,
+      password: env.AMIS_PASSWORD || env.MISA_WEB_PASSWORD,
+      totpSecret: env.AMIS_TOTP_SECRET,
+      targetDb: t.targetDb ?? env.AMIS_TARGET_DB ?? env.MISA_WEB_TARGET_DB,
+    },
+    sources: config.sources.map((s) => (s.groups ? { ...s, groups: { ...s.groups, file: t.groupsFile ?? `data/nhom_vthh.${t.id}.json` } } : s)),
+  };
+}
