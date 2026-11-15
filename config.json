@@ -246,7 +246,7 @@
           "waitGone": "button:has-text('Xem báo cáo')"
         },
         {
-          "waitFor": "text=Tổng số"
+          "waitForResult": { "found": "text=Tổng số", "empty": "text=Không có dữ liệu" }
         },
         {
           "wait": 3000

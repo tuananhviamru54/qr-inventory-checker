@@ -221,6 +221,11 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
     const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period, sourceIds: ['doanh_so'], fileKeys: { doanh_so: fileKey }, vars: { groups: groups.join('|') } });
     await progress.stage('send');
     const ds = data.datasets.doanh_so;
+    if (ds.error?.includes('NO_DATA')) {
+      await tg.sendMessage(`ℹ️ <b>Không có doanh số — ${escapeHtml(range.label)}</b>${groups.length ? `\n📦 Nhóm VTHH: ${escapeHtml(groups.join(', '))}` : ''}\nAMIS báo "Không có dữ liệu" cho kỳ và nhóm này (không phải lỗi).`);
+      await progress.finish(true);
+      return { message: null };
+    }
     if (ds.error || ds.missing) {
       await tg.sendMessage(`⚠️ <b>Không lấy được báo cáo doanh số — ${escapeHtml(range.label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
       await progress.finish(false);

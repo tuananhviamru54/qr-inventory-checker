@@ -337,6 +337,14 @@ export class AmisSession {
           case 'press': await page.keyboard.press(arg); break;
           case 'wait': await page.waitForTimeout(arg); break;
           case 'waitGone': await page.locator(t(arg)).first().waitFor({ state: 'hidden' }); break;
+          case 'waitForResult': {
+            // đợi bảng có dữ liệu ("found") hoặc trang báo trống ("empty") — trống không phải lỗi
+            const found = page.locator(t(arg.found)).first();
+            const empty = page.locator(t(arg.empty)).first();
+            await found.or(empty).first().waitFor({ state: 'visible' });
+            if (await empty.isVisible().catch(() => false)) throw new Error('NO_DATA: báo cáo không có dữ liệu trong kỳ/bộ lọc đã chọn');
+            break;
+          }
           case 'waitFor': await page.locator(t(arg)).first().waitFor({ state: 'visible' }); break;
           case 'download': {
             // dạng rút gọn: "selector"; dạng đầy đủ: { selector, confirm?, response? }
