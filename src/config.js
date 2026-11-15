@@ -50,6 +50,19 @@ function readEnvFile(file) {
   }));
 }
 
+/**
+ * Phạm vi xem = công ty + chi nhánh (nếu sổ có nhiều chi nhánh). Mỗi chi nhánh có thư mục tải về riêng để số liệu đã lưu không lẫn nhau;
+ * mã chi nhánh được bot chọn trong ô "Chi nhánh" của từng báo cáo AMIS.
+ */
+export function scopeConfig(config, tenantId, branchIndex) {
+  const c = tenantConfig(config, tenantId);
+  const t = tenantsOf(config).find((x) => x.id === c.tenant);
+  const b = t?.branches?.[branchIndex ?? 0];
+  if (!b) return c;
+  const slug = `cn${branchIndex ?? 0}`;
+  return { ...c, branchName: b.name, branchIndex: branchIndex ?? 0, branchCodes: b.codes, dirs: { ...c.dirs, downloads: path.join(c.dirs.downloads, slug) } };
+}
+
 export const tenantsOf = (config) => (config.tenants?.length ? config.tenants : [{ id: 'default', name: config.title, default: true }]);
 export const defaultTenantId = (config) => (tenantsOf(config).find((t) => t.default) ?? tenantsOf(config)[0]).id;
 

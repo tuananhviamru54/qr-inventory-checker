@@ -111,7 +111,7 @@ export async function collect(config, { download = true, headed = false, log = c
       for (const src of amisSources) {
         log(`→ Xuất báo cáo: ${src.name}`);
         try {
-          files[src.id] = await session.exportReport(src, { ...period, targetDb: config.secrets.targetDb ?? '', ...vars }, { fileName: fileKeys[src.id] });
+          files[src.id] = await session.exportReport(src, { ...period, targetDb: config.secrets.targetDb ?? '', branches: (config.branchCodes ?? []).join('|'), ...vars }, { fileName: fileKeys[src.id] });
           log(`✓ Đã lưu ${path.relative(config.root, files[src.id])}`);
         } catch (e) {
           const shot = await session.screenshot(`loi-${src.id}`);

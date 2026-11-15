@@ -17,7 +17,7 @@ import { buildIncomeMessage } from './income.js';
 import { buildCostMessage, summarizeCost, previousRange, COST_ACCOUNTS } from './cost.js';
 import { readLedger, expenseVouchers, buildVoucherMessage, writeVoucherWorkbook } from './ledger.js';
 import { loadGroups, groupsKey } from './groups.js';
-import { tenantConfig, tenantsOf, defaultTenantId } from './config.js';
+import { scopeConfig, tenantsOf, defaultTenantId } from './config.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,7 +64,7 @@ export const COMMANDS = [
   { command: 'quytien', description: 'Quỹ tiền: tiền mặt (TK 111) + tiền gửi ngân hàng (TK 112)' },
   { command: 'ketqua', description: 'Kết quả kinh doanh B02 (chỉ chủ bot, chat riêng)' },
   { command: 'chiphi', description: 'Chi phí kỳ này so với kỳ trước (chỉ chủ bot, chat riêng)' },
-  { command: 'congty', description: 'Đổi công ty / sổ dữ liệu AMIS (chỉ chủ bot)' },
+  { command: 'congty', description: 'Trang tổng công ty: chọn chi nhánh (chỉ chủ bot)' },
   { command: 'capnhatnhom', description: 'Cập nhật danh sách Nhóm VTHH từ AMIS' },
   { command: 'trogiup', description: 'Hướng dẫn sử dụng' },
 ];
@@ -103,6 +103,9 @@ const periodKeyboard = (mode = 'sales') => {
   ] };
 };
 
+/** Tên sổ dữ liệu hiển thị trên báo cáo, kèm chi nhánh nếu đang xem theo chi nhánh. */
+const dbLabel = (config) => [config.secrets.targetDb, config.branchName && `📍 ${config.branchName}`].filter(Boolean).join(' · ');
+
 // ---- Trang chủ (dashboard): logo + các ô báo cáo bấm được ----
 const LOGO = fileURLToPath(new URL('../assets/logo.jpg', import.meta.url));
 const WEEKDAYS = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
@@ -120,6 +123,7 @@ export function dashboardCaption(config, now = new Date()) {
   return [
     `🐉 <b>${escapeHtml(config.brand ?? 'TỔNG KHO NHỰA ECOPLAST QUẢNG NINH')}</b>`,
     `<i>Trung tâm báo cáo MISA AMIS</i>${db}`,
+    ...(config.branchName ? [`📍 Chi nhánh: <b>${escapeHtml(config.branchName)}</b>`] : []),
     `📅 ${date}`,
     '━━━━━━━━━━━━━━━━━━',
     '📦 <b>KHO & BÁN HÀNG</b>',
@@ -138,8 +142,32 @@ export function dashboardCaption(config, now = new Date()) {
 }
 /** Ô bấm trang chủ; chat riêng của chủ bot có thêm ô Kết quả kinh doanh (🔒). */
 export const dashboardKeyboard = (ownerPrivate = false, multiCompany = false) => (ownerPrivate
-  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả KD 🔒', callback_data: 'f:menu' }, { text: '💸 Chi phí 🔒', callback_data: 'y:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3), ...(multiCompany ? [[{ text: '🏢 Đổi công ty', callback_data: 'z:co' }]] : [])] }
+  ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả KD 🔒', callback_data: 'f:menu' }, { text: '💸 Chi phí 🔒', callback_data: 'y:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3), ...(multiCompany ? [[{ text: '⬅️ Về trang tổng công ty', callback_data: 'z:co' }]] : [])] }
   : DASHBOARD_KEYBOARD);
+/** Trang tổng (chỉ chủ bot, chat riêng): công ty có nhiều chi nhánh ở trên → bấm 1 chi nhánh để vào trang báo cáo hiện tại. */
+export function companyDashboard(config, now = new Date()) {
+  const vn = new Date(now.getTime() + 7 * 3600e3);
+  const date = `${WEEKDAYS[vn.getUTCDay()]}, ${String(vn.getUTCDate()).padStart(2, '0')}/${String(vn.getUTCMonth() + 1).padStart(2, '0')}/${vn.getUTCFullYear()}`;
+  const tenants = tenantsOf(config);
+  const top = tenants.find((t) => t.top) ?? tenants[0];
+  const others = tenants.filter((t) => t !== top);
+  const L = [`🏢 <b>${escapeHtml(top.brand ?? top.name)}</b>`, '<i>Trang tổng · chọn chi nhánh để xem báo cáo</i>', `📅 ${date}`, '━━━━━━━━━━━━━━━━━━'];
+  (top.branches ?? []).forEach((b) => L.push(`${b.icon ?? '🏭'} ${escapeHtml(b.name)}${b.codes.length > 1 ? ' — cộng tất cả chi nhánh' : ''}`));
+  if (others.length) { L.push('', '<b>Sổ dữ liệu riêng</b>'); others.forEach((t) => L.push(`🐉 ${escapeHtml(t.name)}`)); }
+  L.push('━━━━━━━━━━━━━━━━━━', '🛡 Chỉ đọc · 🔒 chỉ chủ bot', '👇 Chọn để mở trang báo cáo');
+  const kb = [];
+  const br = (top.branches ?? []).map((b, i) => ({ text: `${b.icon ?? '🏭'} ${b.name}`, callback_data: `z:br:${top.id}:${i}` }));
+  if (br.length) kb.push([br[0]]);
+  for (let i = 1; i < br.length; i += 2) kb.push(br.slice(i, i + 2));
+  if (!br.length) kb.push([{ text: `🏢 ${top.name}`, callback_data: `z:br:${top.id}:0` }]);
+  others.forEach((t) => kb.push([{ text: `🐉 ${t.name}`, callback_data: `z:br:${t.id}:0` }]));
+  return { caption: L.join('\n'), reply_markup: { inline_keyboard: kb } };
+}
+export async function sendCompanyDashboard(config, tg) {
+  const { caption, reply_markup } = companyDashboard(config);
+  try { await tg.sendFile(LOGO, caption, 'sendPhoto', { html: true, reply_markup }); } catch { await tg.sendMessage(caption, { reply_markup }); }
+}
+
 export async function sendDashboard(config, tg, { ownerPrivate = false } = {}) {
   const kb = dashboardKeyboard(ownerPrivate, (config.tenants?.length ?? 0) > 1);
   const caption = dashboardCaption(config) + (ownerPrivate ? '\n🔒 <i>Riêng bạn: Kết quả kinh doanh · Chi phí</i>' : '');
@@ -352,7 +380,7 @@ export async function handleDebt(config, tg, mode, range, { fresh = false, heade
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
-      buildDebtMessage({ kind: kindKey, label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt }),
+      buildDebtMessage({ kind: kindKey, label: range.label, period, targetDb: dbLabel(config), dataset: ds, updatedAt }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -392,7 +420,7 @@ export async function handleCash(config, tg, range, { fresh = false, headed } = 
     const file = data.datasets[ids[1]].file ?? data.datasets[ids[0]].file;
     const updatedAt = file ? vnTime(fs.statSync(file).mtimeMs) : '';
     const message = [
-      buildCashMessage({ label: range.label, period, targetDb: config.secrets.targetDb, cash, bank, updatedAt }),
+      buildCashMessage({ label: range.label, period, targetDb: dbLabel(config), cash, bank, updatedAt }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -441,7 +469,7 @@ export async function handleDaily(config, tg, { fresh = false, headed, date } = 
     const updatedAt = files.length ? vnTime(Math.min(...files.map((f) => fs.statSync(f).mtimeMs))) : '';
     const failed = Object.values(ds).some((d) => !d || (d.error && !d.error.includes('NO_DATA')) || d.missing);
     const message = [
-      buildDailyMessage({ date: today, targetDb: config.secrets.targetDb, ds, updatedAt, brand: config.brand }),
+      buildDailyMessage({ date: today, targetDb: dbLabel(config), ds, updatedAt, brand: config.brand }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -487,7 +515,7 @@ export async function handleIncome(config, tg, range, { fresh = false, headed, o
       return { message: null, failed: true };
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
-    const message = [buildIncomeMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt }), supervisionSection(data.supervision, data.blocked)].filter(Boolean).join('\n\n');
+    const message = [buildIncomeMessage({ label: range.label, period, targetDb: dbLabel(config), dataset: ds, updatedAt }), supervisionSection(data.supervision, data.blocked)].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, { reply_markup: { inline_keyboard: [[
       { text: '🔄 Làm mới số liệu này', callback_data: refreshButton(config, range, [], REFRESH_PREFIX.fin) },
       { text: '📅 Chọn kỳ khác', callback_data: `${MODE_PREFIX.fin}:menu` },
@@ -526,7 +554,7 @@ export async function handleCost(config, tg, range, { fresh = false, headed, own
     const prev = pd && !pd.error && !pd.missing ? summarizeCost(pd) : null;
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const cur = summarizeCost(ds);
-    const message = [buildCostMessage({ label: range.label, period: range, prevPeriod: prevR, targetDb: config.secrets.targetDb, cur, prev, updatedAt }), supervisionSection(a.supervision, a.blocked)].filter(Boolean).join('\n\n');
+    const message = [buildCostMessage({ label: range.label, period: range, prevPeriod: prevR, targetDb: dbLabel(config), cur, prev, updatedAt }), supervisionSection(a.supervision, a.blocked)].filter(Boolean).join('\n\n');
     const dd = (x) => x.replace(/\//g, '');
     const voucherRows = COST_ACCOUNTS.filter(([k]) => Math.round(cur.items[k])).map(([k, icon, name]) => [{ text: `${icon} ${name.replace(/ \(.*\)$/, '')} — xem chứng từ`, callback_data: `y:v:${k}:${dd(range.fromDate)}:${dd(range.toDate)}` }]);
     await tg.sendMessage(message, { reply_markup: { inline_keyboard: [...voucherRows, [
@@ -602,7 +630,7 @@ export async function handleStock(config, tg, range, { fresh = false, headed, gr
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
-      buildStockMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt, groups }),
+      buildStockMessage({ label: range.label, period, targetDb: dbLabel(config), dataset: ds, updatedAt, groups }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -650,7 +678,7 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
     }
     const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
     const message = [
-      buildSalesMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt, groups, by }),
+      buildSalesMessage({ label: range.label, period, targetDb: dbLabel(config), dataset: ds, updatedAt, groups, by }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
     await tg.sendMessage(message, {
@@ -910,9 +938,11 @@ export async function runBot(config, opts = {}) {
   // công ty của từng khung chat: chat riêng chủ bot đổi được (/congty); nhóm cố định theo access.tenants (mặc định: công ty mặc định)
   const cfgCache = new Map();
   const cfgOf = (chat) => {
-    const id = ctx(chat).state.tenant ?? acc.tenants?.[chat] ?? defaultTenantId(config);
-    if (!cfgCache.has(id)) cfgCache.set(id, tenantConfig(config, id));
-    return cfgCache.get(id);
+    const st = ctx(chat).state;
+    const id = st.tenant ?? acc.tenants?.[chat] ?? defaultTenantId(config);
+    const k = `${id}:${st.branch ?? 0}`;
+    if (!cfgCache.has(k)) cfgCache.set(k, scopeConfig(config, id, st.branch ?? 0));
+    return cfgCache.get(k);
   };
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhóm đã bật: ${groups().length ? groups().map((g) => `${acc.names[g] ?? ''} (${g})`).join(', ') : 'chưa có'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
@@ -1012,15 +1042,15 @@ export async function runBot(config, opts = {}) {
           const job = retries.get(cq.data.slice(2));
           if (job) dispatch(job.tg, job.work);
           else await t.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo.').catch(() => {});
-        } else if (/^z:co/.test(cq.data ?? '')) { // đổi công ty: chỉ chủ bot trong chat riêng
+        } else if (/^z:(co|br)/.test(cq.data ?? '')) { // trang tổng / chọn chi nhánh: chỉ chủ bot trong chat riêng
           await answer();
-          if (chat !== owner) { await t.sendMessage('Chỉ chủ bot đổi được công ty, trong chat riêng với bot.').catch(() => {}); continue; }
-          const id = cq.data.split(':')[2];
-          if (!id) await t.sendMessage(`🏢 <b>Chọn công ty</b> (đang xem: <b>${escapeHtml(cfgOf(chat).tenantName ?? '')}</b>)`, { reply_markup: { inline_keyboard: tenantsOf(config).map((x) => [{ text: `${x.id === cfgOf(chat).tenant ? '✅ ' : ''}${x.name}`, callback_data: `z:co:${x.id}` }]) } }).catch(() => {});
-          else if (tenantsOf(config).some((x) => x.id === id)) {
-            ctx(chat).state.tenant = id;
+          if (chat !== owner) { await t.sendMessage('Chỉ chủ bot chọn được công ty / chi nhánh, trong chat riêng với bot.').catch(() => {}); continue; }
+          const [, kind2, tid, bi] = cq.data.split(':');
+          const ten = tenantsOf(config).find((x) => x.id === tid);
+          if (kind2 === 'br' && ten && (+bi === 0 || ten.branches?.[+bi])) {
+            Object.assign(ctx(chat).state, { tenant: tid, branch: +bi || 0 });
             await sendDashboard(cfgOf(chat), t, { ownerPrivate: true }).catch(() => {});
-          }
+          } else await sendCompanyDashboard(config, t).catch(() => {});
         } else if (/^[skpqhjmnruvwzfeyo]:/.test(cq.data ?? '')) {
           await answer();
           dispatch(t, () => handleCallbackData(cfgOf(chat), t, cq.data, o));
@@ -1082,7 +1112,8 @@ export async function runBot(config, opts = {}) {
       }
       if (!acc.users.has(from)) continue; // thành viên chưa được cấp quyền: chỉ xem, bot không trả lời
       { const rl = limiter.check(from); if (rl !== 'ok') { if (rl === 'warn') await t.sendMessage('⏳ Bạn gửi lệnh quá nhanh. Chờ 1 phút rồi thử lại.').catch(() => {}); continue; } }
-      if (cmd === '/congty' && chat === owner) { await t.sendMessage('🏢 Chọn công ty:', { reply_markup: { inline_keyboard: tenantsOf(config).map((x) => [{ text: `${x.id === cfgOf(chat).tenant ? '✅ ' : ''}${x.name}`, callback_data: `z:co:${x.id}` }]) } }).catch(() => {}); continue; }
+      // chủ bot, chat riêng, có nhiều công ty: /start, 🏠 Trang chủ, /congty → trang tổng công ty
+      if (chat === owner && tenantsOf(config).length > 1 && (cmd === '/start' || cmd === '/congty' || msg.text.trim() === BTN.home)) { if (limiter.check(from) === 'ok') await sendCompanyDashboard(config, t).catch(() => {}); continue; }
       dispatch(t, () => handleUpdate(cfgOf(chat), t, msg.text, o));
     }
     if (opts.once) return;

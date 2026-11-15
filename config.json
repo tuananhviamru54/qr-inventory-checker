@@ -1573,7 +1573,49 @@
       "profile": ".auth-misa2/profile",
       "downloads": "downloads/tf",
       "targetDb": "KETOAN THE FIVE T9.2026",
-      "groupsFile": "data/nhom_vthh.tf.json"
+      "groupsFile": "data/nhom_vthh.tf.json",
+      "branches": [
+        {
+          "name": "Toàn công ty",
+          "icon": "🏢",
+          "codes": [
+            "THEFIVE",
+            "KHO HÀ NỘI",
+            "KHO ĐỒNG NAI",
+            "KHO MIỀN TÂY",
+            "KHO VĨNH PHÚC"
+          ]
+        },
+        {
+          "name": "Kho Hà Nội",
+          "icon": "🏭",
+          "codes": [
+            "KHO HÀ NỘI"
+          ]
+        },
+        {
+          "name": "Kho Đồng Nai",
+          "icon": "🏭",
+          "codes": [
+            "KHO ĐỒNG NAI"
+          ]
+        },
+        {
+          "name": "Kho Miền Tây",
+          "icon": "🏭",
+          "codes": [
+            "KHO MIỀN TÂY"
+          ]
+        },
+        {
+          "name": "Kho Vĩnh Phúc",
+          "icon": "🏭",
+          "codes": [
+            "KHO VĨNH PHÚC"
+          ]
+        }
+      ],
+      "top": true
     }
   ]
 }

@@ -58,3 +58,21 @@ test('nhiều công ty: mỗi công ty có tài khoản, sổ dữ liệu, hồ 
     assert.equal(tenantConfig(base, 'khong-co').tenant, 'a'); // mã lạ → công ty mặc định
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('trang tổng công ty: chi nhánh trước (Toàn công ty ở đầu), sổ riêng sau; phạm vi chi nhánh có thư mục tải về riêng', async () => {
+  const { companyDashboard } = await import('../src/bot.js');
+  const { scopeConfig } = await import('../src/config.js');
+  const config = { root: os.tmpdir(), dirs: { downloads: '/d', profile: '/p', output: '/o' }, secrets: {}, sources: [], tenants: [
+    { id: 'qn', name: 'Kho Quảng Ninh', default: true },
+    { id: 'tf', name: 'The Five', brand: 'CÔNG TY THE FIVE', top: true, envFile: '.khong-co', branches: [{ name: 'Toàn công ty', icon: '🏢', codes: ['A', 'B'] }, { name: 'Kho A', codes: ['A'] }, { name: 'Kho B', codes: ['B'] }] }] };
+  const { caption, reply_markup } = companyDashboard(config, new Date('2026-11-15T03:00:00Z'));
+  assert.match(caption, /^🏢 <b>CÔNG TY THE FIVE<\/b>/);
+  assert.ok(caption.indexOf('Toàn công ty') < caption.indexOf('Kho A') && caption.indexOf('Kho B') < caption.indexOf('Kho Quảng Ninh'));
+  const data = reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
+  assert.deepEqual(data, ['z:br:tf:0', 'z:br:tf:1', 'z:br:tf:2', 'z:br:qn:0']);
+  const a = scopeConfig(config, 'tf', 1), all = scopeConfig(config, 'tf', 0);
+  assert.deepEqual([a.branchName, a.branchCodes], ['Kho A', ['A']]);
+  assert.deepEqual(all.branchCodes, ['A', 'B']);
+  assert.notEqual(a.dirs.downloads, all.dirs.downloads);
+  assert.equal(scopeConfig(config, 'qn', 0).branchCodes, undefined);
+});

@@ -239,6 +239,31 @@ export class AmisSession {
     });
   }
 
+  /** Chọn đúng các chi nhánh trong ô "Chi nhánh" của hộp tham số (bỏ hết lựa chọn cũ rồi chọn lại). Chỉ là bộ lọc báo cáo, không ghi dữ liệu. */
+  async selectBranches(codes) {
+    const { page } = this;
+    const prefix = await page.evaluate(() => [...document.querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid')).find((x) => /_p_branch_id$/.test(x)) ?? null);
+    if (!prefix) return false; // báo cáo / sổ không có chi nhánh
+    this.supervisor.ask({ kind: 'fill', selector: 'branches', value: codes.join(',') }).catch(() => {});
+    const chips = page.locator(`[data-testid^='${prefix}-di-deselect-']`);
+    for (let n = 0; n < 20 && (await chips.count()) > 0; n++) { await chips.first().click(); await page.waitForTimeout(250); }
+    if ((await chips.count()) > 0) throw new Error('không bỏ chọn hết được chi nhánh cũ');
+    const arrow = page.locator(`[data-testid='${prefix}-di-triggerclick']`).first();
+    const rows = page.locator('.dropdown-item-td--text');
+    if (!(await rows.first().isVisible().catch(() => false))) await arrow.click();
+    await page.waitForTimeout(800);
+    for (const code of codes) {
+      const row = rows.filter({ hasText: new RegExp(`^${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).first();
+      if (!(await row.count())) throw new Error(`không thấy chi nhánh "${code}"`);
+      await row.click();
+      await page.waitForTimeout(600);
+    }
+    if ((await chips.count()) !== codes.length) throw new Error(`đã chọn ${await chips.count()}/${codes.length} chi nhánh`);
+    await arrow.click();
+    await page.waitForTimeout(400);
+    return true;
+  }
+
   /** Chạy danh sách bước của 1 báo cáo, trả về đường dẫn file đã tải. */
   async exportReport(source, vars, { fileName } = {}) {
     const { page } = this;
@@ -292,6 +317,8 @@ export class AmisSession {
             break;
           }
           case 'dateRange': {
+            // Sổ có nhiều chi nhánh: chọn đúng chi nhánh (vars.branches = mã ngăn bằng '|') trước khi đặt ngày. Báo cáo không có ô Chi nhánh thì bỏ qua.
+            if (vars.branches) await this.selectBranches(String(vars.branches).split('|').filter(Boolean));
             // { from, to, fromValue, toValue } — AMIS từ chối khoảng ngày bị đảo (từ > đến) nên đặt ô nào trước phụ thuộc vào giá trị hiện tại
             const fromLoc = page.locator(t(arg.from)).first();
             const toLoc = page.locator(t(arg.to)).first();

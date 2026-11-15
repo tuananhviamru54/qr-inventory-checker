@@ -272,6 +272,7 @@ Việc **bạn** cần làm (chương trình không tự làm được):
 
 Một bot phục vụ nhiều công ty (khai báo ở `config.json` → `tenants`). Mỗi công ty có tài khoản AMIS (`envFile`, vd `.env.misa2` — không đưa lên git), sổ dữ liệu (`targetDb`), hồ sơ trình duyệt, thư mục tải về và danh sách Nhóm VTHH riêng nên số liệu không lẫn nhau. Công ty có `"default": true` dùng `.env` gốc.
 
-- Chat riêng của chủ bot: nút **🏢 Đổi công ty** trên trang chủ hoặc lệnh `/congty`.
+- Chat riêng của chủ bot: `/start` (hoặc 🏠 Trang chủ, `/congty`) mở **trang tổng công ty The Five**: 🏢 Toàn công ty, rồi từng chi nhánh (Kho Hà Nội, Đồng Nai, Miền Tây, Vĩnh Phúc), sau đó các sổ riêng (Kho Quảng Ninh). Bấm 1 mục → trang báo cáo hiện tại cho đúng phạm vi đó; nút ⬅️ để quay về trang tổng.
+- Chi nhánh: khai báo `branches` của công ty (`codes` = mã chi nhánh trong ô "Chi nhánh" của báo cáo AMIS). "Toàn công ty" chọn tất cả chi nhánh (đã kiểm: tổng = cộng từng kho, không trùng). Mỗi chi nhánh có thư mục số liệu riêng.
 - Nhóm Telegram: cố định theo công ty mặc định (hoặc `tenants` trong `data/telegram-access.json`: `{ "<mã nhóm>": "<mã công ty>" }`).
 - Mọi nguyên tắc giữ nguyên: chỉ đọc, giám sát, che bí mật, chỉ chủ bot xem báo cáo tài chính.
