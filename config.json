@@ -1186,6 +1186,118 @@
           }
         }
       ]
+    },
+    {
+      "id": "kqkd",
+      "name": "Kết quả hoạt động kinh doanh (B02)",
+      "type": "amis",
+      "onDemand": true,
+      "parse": {
+        "key": [
+          "chi_tieu"
+        ],
+        "fields": {
+          "chi_tieu": {
+            "headers": [
+              "Chỉ tiêu"
+            ],
+            "type": "text"
+          },
+          "ma_so": {
+            "headers": [
+              "Mã số",
+              "Mã"
+            ],
+            "type": "text"
+          },
+          "ky_nay": {
+            "headers": [
+              "Số cuối kỳ",
+              "Kỳ này",
+              "Số kỳ này"
+            ]
+          },
+          "ky_truoc": {
+            "headers": [
+              "Số đầu kỳ",
+              "Kỳ trước",
+              "Số kỳ trước"
+            ]
+          }
+        },
+        "skipKeyPattern": "^(nguoi lap|ke toan truong|giam doc|ngay)\\b"
+      },
+      "steps": [
+        {
+          "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/GLB02_DN"
+        },
+        {
+          "waitFor": "button:has-text('Chọn tham số')"
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": {
+            "selector": "button:has-text('Chọn tham số')",
+            "unlessVisible": "button:has-text('Xem báo cáo')"
+          }
+        },
+        {
+          "waitFor": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "dateRange": {
+            "from": "input.input-date >> nth=0",
+            "to": "input.input-date >> nth=1",
+            "fromValue": "{{fromDate}}",
+            "toValue": "{{toDate}}"
+          }
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitGone": "button:has-text('Xem báo cáo')"
+        },
+        {
+          "waitForResult": {
+            "found": "text=Lợi nhuận sau thuế",
+            "empty": "text=Không có dữ liệu"
+          }
+        },
+        {
+          "wait": 3000
+        },
+        {
+          "click": "[data-testid$='-msdd-raction-btn-buttonsubclick']"
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "click": "text=Xuất Excel (dạng dữ liệu)"
+        },
+        {
+          "click": {
+            "selector": "button:visible:has-text('Đồng ý')",
+            "optional": true,
+            "timeout": 15000
+          }
+        },
+        {
+          "waitFor": "text=\"Tải tệp\""
+        },
+        {
+          "download": {
+            "selector": "text=\"Tải tệp\"",
+            "response": "/file-access/download"
+          }
+        }
+      ]
     }
   ],
   "checks": [

@@ -60,6 +60,9 @@ export function resolvePeriod(period = 'thisMonth', now = new Date(), timeZone =
     case 'thisMonth': from = new Date(Date.UTC(y, m, 1)); break;
     case 'lastMonth': from = new Date(Date.UTC(y, m - 1, 1)); to = new Date(Date.UTC(y, m, 0)); break;
     case 'thisYear': from = new Date(Date.UTC(y, 0, 1)); break;
+    case 'lastYear': from = new Date(Date.UTC(y - 1, 0, 1)); to = new Date(Date.UTC(y - 1, 11, 31)); break;
+    case 'thisQuarter': from = new Date(Date.UTC(y, m - (m % 3), 1)); break;
+    case 'lastQuarter': from = new Date(Date.UTC(y, m - (m % 3) - 3, 1)); to = new Date(Date.UTC(y, m - (m % 3), 0)); break;
     default:
       if (typeof period === 'object' && period.from && period.to) {
         return { fromDate: period.from, toDate: period.to, today: fmtDate(today) };
@@ -96,7 +99,7 @@ export async function totp(secretBase32, now = Date.now()) {
   return String(code).padStart(6, '0');
 }
 
-export const PERIOD_LABELS = { today: 'Hôm nay', yesterday: 'Hôm qua', thisWeek: 'Tuần này', thisMonth: 'Tháng này', lastMonth: 'Tháng trước' };
+export const PERIOD_LABELS = { today: 'Hôm nay', yesterday: 'Hôm qua', thisWeek: 'Tuần này', thisMonth: 'Tháng này', lastMonth: 'Tháng trước', thisQuarter: 'Quý này', lastQuarter: 'Quý trước', thisYear: 'Năm nay', lastYear: 'Năm trước' };
 
 /**
  * Đọc khoảng ngày người dùng gõ: "01/11/2026 - 10/11/2026", "1/11 đến 10/11" (thiếu năm = năm hiện tại), hoặc 1 ngày.

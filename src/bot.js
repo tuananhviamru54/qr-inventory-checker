@@ -13,6 +13,7 @@ import { buildStockMessage } from './stock.js';
 import { buildDebtMessage } from './debt.js';
 import { buildCashMessage } from './cash.js';
 import { buildDailyMessage } from './daily.js';
+import { buildIncomeMessage } from './income.js';
 import { loadGroups, groupsKey } from './groups.js';
 import { escapeHtml, norm, parseDateRange, resolvePeriod, PERIOD_LABELS } from './util.js';
 import fs from 'node:fs';
@@ -30,9 +31,10 @@ const BTN = {
   ap: '🏭 Công nợ nhà cung cấp',
   cash: '💵 Quỹ tiền',
   home: '🏠 Trang chủ',
+  fin: '📑 Kết quả KD',
   help: '❓ Hướng dẫn',
 };
-const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup', [BTN.home]: '/start' };
+const BTN_TO_CMD = { [BTN.refresh]: '/moi', [BTN.stock]: '/tonkho', [BTN.sales]: '/doanhso', [BTN.salesKh]: '/doanhsokh', [BTN.ar]: '/congnokh', [BTN.ap]: '/congnoncc', [BTN.cash]: '/quytien', [BTN.help]: '/trogiup', [BTN.home]: '/start', [BTN.fin]: '/ketqua' };
 
 /** Bàn phím cố định dưới ô nhập tin (luôn hiện cho tới khi bị gỡ). */
 export const MENU = {
@@ -40,6 +42,10 @@ export const MENU = {
   resize_keyboard: true,
   is_persistent: true,
 };
+
+/** Bàn phím riêng của chủ bot trong chat riêng: thêm nút Kết quả kinh doanh. */
+export const MENU_OWNER = { ...MENU, keyboard: [...MENU.keyboard.slice(0, -1), [{ text: BTN.fin }], MENU.keyboard.at(-1)] };
+export const FIN_DENIED = '🔒 Báo cáo kết quả kinh doanh chỉ dành cho chủ bot và chỉ xem trong chat riêng với bot.';
 
 export const COMMANDS = [
   { command: 'start', description: 'Trang chủ: logo và các báo cáo' },
@@ -52,14 +58,15 @@ export const COMMANDS = [
   { command: 'congnokh', description: 'Công nợ khách hàng (phải thu, TK 131)' },
   { command: 'congnoncc', description: 'Công nợ nhà cung cấp (phải trả, TK 331)' },
   { command: 'quytien', description: 'Quỹ tiền: tiền mặt (TK 111) + tiền gửi ngân hàng (TK 112)' },
+  { command: 'ketqua', description: 'Kết quả kinh doanh B02 (chỉ chủ bot, chat riêng)' },
   { command: 'capnhatnhom', description: 'Cập nhật danh sách Nhóm VTHH từ AMIS' },
   { command: 'trogiup', description: 'Hướng dẫn sử dụng' },
 ];
 
 /** Bàn phím chọn kỳ: tiền tố s: cho báo cáo doanh số, k: cho báo cáo tồn kho. */
-const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q', cash: 'm' };
+const MODE_PREFIX = { sales: 's', salesKh: 'h', stock: 'k', ar: 'p', ap: 'q', cash: 'm', fin: 'f' };
 const PREFIX_MODE = Object.fromEntries(Object.entries(MODE_PREFIX).map(([m, p]) => [p, m]));
-const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w', cash: 'n' };
+const REFRESH_PREFIX = { sales: 'r', salesKh: 'j', stock: 'u', ar: 'v', ap: 'w', cash: 'n', fin: 'e' };
 const REFRESH_MODE = Object.fromEntries(Object.entries(REFRESH_PREFIX).map(([m, p]) => [p, m]));
 const periodKeyboard = (mode = 'sales') => {
   const p = MODE_PREFIX[mode] ?? 's';
@@ -67,6 +74,10 @@ const periodKeyboard = (mode = 'sales') => {
     [{ text: 'Hôm nay', callback_data: `${p}:today` }, { text: 'Hôm qua', callback_data: `${p}:yesterday` }],
     [{ text: 'Tuần này', callback_data: `${p}:thisWeek` }, { text: 'Tháng này', callback_data: `${p}:thisMonth` }],
     [{ text: 'Tháng trước', callback_data: `${p}:lastMonth` }, { text: '📅 Tùy chọn ngày', callback_data: `${p}:custom` }],
+    ...(mode === 'fin' ? [
+      [{ text: 'Quý này', callback_data: `${p}:thisQuarter` }, { text: 'Quý trước', callback_data: `${p}:lastQuarter` }],
+      [{ text: 'Năm nay', callback_data: `${p}:thisYear` }, { text: 'Năm trước', callback_data: `${p}:lastYear` }],
+    ] : []),
   ] };
 };
 
@@ -207,7 +218,7 @@ const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi
 export async function beginSales(config, tg, range, opts = {}) {
   const state = opts.state ?? defaultState;
   const mode = opts.mode ?? state.mode ?? 'sales';
-  const list = ['ar', 'ap', 'salesKh', 'cash'].includes(mode) ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
+  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin'].includes(mode) ? [] : loadGroups(config); // công nợ không có bước chọn Nhóm VTHH
   if (!list.length) return runReport(config, tg, mode, range, opts); // chưa có danh sách nhóm → lấy tất cả
   state.pick = { range, list, selected: new Set(), mode };
   await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
@@ -279,11 +290,11 @@ export function parseSalesIntent(text, now = new Date()) {
 
 async function sendPeriodPicker(tg, note = '', mode = 'sales', state = defaultState) {
   state.mode = mode;
-  const head = { stock: '📊 <b>Báo cáo tồn kho</b> (đầu kỳ, nhập, xuất, cuối kỳ, giá trị)', ar: '🧾 <b>Công nợ khách hàng</b> (phải thu, TK 131)', ap: '🏭 <b>Công nợ nhà cung cấp</b> (phải trả, TK 331)', salesKh: '👥 <b>Doanh số theo khách hàng</b> (kèm doanh thu thuần, lãi gộp)', cash: '💵 <b>Quỹ tiền</b> (tiền mặt + tiền gửi ngân hàng)' }[mode] ?? '💰 <b>Doanh số theo mặt hàng</b> (kèm doanh thu thuần, lãi gộp)';
+  const head = { stock: '📊 <b>Báo cáo tồn kho</b> (đầu kỳ, nhập, xuất, cuối kỳ, giá trị)', ar: '🧾 <b>Công nợ khách hàng</b> (phải thu, TK 131)', ap: '🏭 <b>Công nợ nhà cung cấp</b> (phải trả, TK 331)', salesKh: '👥 <b>Doanh số theo khách hàng</b> (kèm doanh thu thuần, lãi gộp)', cash: '💵 <b>Quỹ tiền</b> (tiền mặt + tiền gửi ngân hàng)', fin: '📑 <b>Kết quả hoạt động kinh doanh</b> (B02 · kỳ này so với kỳ trước) 🔒' }[mode] ?? '💰 <b>Doanh số theo mặt hàng</b> (kèm doanh thu thuần, lãi gộp)';
   await tg.sendMessage(`${note ? `${note}\n\n` : ''}${head}\nChọn kỳ cần xem:`, { reply_markup: periodKeyboard(mode) });
 }
 
-const runReport = (config, tg, mode, range, opts) => (mode === 'cash' ? handleCash(config, tg, range, opts) : mode === 'stock' ? handleStock(config, tg, range, opts) : mode === 'ar' || mode === 'ap' ? handleDebt(config, tg, mode, range, opts) : handleSales(config, tg, range, { ...opts, by: mode === 'salesKh' ? 'customer' : 'item' }));
+const runReport = (config, tg, mode, range, opts) => (mode === 'fin' ? handleIncome(config, tg, range, opts) : mode === 'cash' ? handleCash(config, tg, range, opts) : mode === 'stock' ? handleStock(config, tg, range, opts) : mode === 'ar' || mode === 'ap' ? handleDebt(config, tg, mode, range, opts) : handleSales(config, tg, range, { ...opts, by: mode === 'salesKh' ? 'customer' : 'item' }));
 
 const refreshButton = (config, range, groups, prefix) => `${prefix}:${ddmmyyyy(range.fromDate)}:${ddmmyyyy(range.toDate)}${groups.length ? `:${groups.map((c) => loadGroups(config).findIndex((g) => g.code === c)).filter((i) => i >= 0).join('-')}` : ''}`;
 
@@ -429,6 +440,38 @@ export function msUntilVn(hhmm, now = Date.now()) {
   return target - now;
 }
 
+/** Kết quả hoạt động kinh doanh (B02): CHỈ chủ bot, CHỈ trong chat riêng — chặn tại đây để mọi đường vào đều bị kiểm. */
+export async function handleIncome(config, tg, range, { fresh = false, headed, ownerPrivate = false } = {}) {
+  if (!ownerPrivate || String(tg.chatId) !== String(config.secrets.telegramChatId)) { await tg.sendMessage(FIN_DENIED); return { message: null }; }
+  const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
+  const fileKey = `kqkd__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}`;
+  const reuse = !fresh && fileAgeMinutes(config, fileKey) <= config.bot.maxDataAgeMinutes;
+  const stages = [...(reuse ? ['reuse'] : ['login', 'export']), 'check', 'send'];
+  const progress = new Progress(tg, { title: `Đang lập báo cáo kết quả kinh doanh — ${range.label}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
+  await progress.start();
+  try {
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period, sourceIds: ['kqkd'], fileKeys: { kqkd: fileKey } });
+    await progress.stage('send');
+    const ds = data.datasets.kqkd;
+    if (ds.error || ds.missing) {
+      await tg.sendMessage(`⚠️ <b>Không lấy được báo cáo kết quả kinh doanh — ${escapeHtml(range.label)}</b>\n${escapeHtml(ds.error ?? 'chưa có dữ liệu')}`);
+      await progress.finish(false);
+      return { message: null, failed: true };
+    }
+    const updatedAt = ds.file ? vnTime(fs.statSync(ds.file).mtimeMs) : '';
+    const message = [buildIncomeMessage({ label: range.label, period, targetDb: config.secrets.targetDb, dataset: ds, updatedAt }), supervisionSection(data.supervision, data.blocked)].filter(Boolean).join('\n\n');
+    await tg.sendMessage(message, { reply_markup: { inline_keyboard: [[
+      { text: '🔄 Làm mới số liệu này', callback_data: refreshButton(config, range, [], REFRESH_PREFIX.fin) },
+      { text: '📅 Chọn kỳ khác', callback_data: `${MODE_PREFIX.fin}:menu` },
+    ]] } });
+    await progress.finish(true);
+    return { message };
+  } catch (e) {
+    await progress.finish(false);
+    throw e;
+  }
+}
+
 export async function handleStock(config, tg, range, { fresh = false, headed, groups = [] } = {}) {
   const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
   const fileKey = `ton_kho__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}${groups.length ? `__${groupsKey(groups)}` : ''}`;
@@ -526,6 +569,7 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
 export async function handleCallbackData(config, tg, data, opts = {}) {
   const state = opts.state ?? defaultState;
   const [kind, a, b, c] = String(data).split(':');
+  if ((kind === 'f' || kind === 'e') && !opts.ownerPrivate) return tg.sendMessage(FIN_DENIED);
   if (PREFIX_MODE[kind]) {
     const mode = PREFIX_MODE[kind];
     if (a === 'menu') return sendPeriodPicker(tg, '', mode, state);
@@ -674,11 +718,12 @@ export async function handleUpdate(config, tg, text, opts = {}) {
     }
   }
 
-  if (cmd === '/start') { await sendDashboard(config, tg); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: MENU }); }
-  if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config), { reply_markup: MENU });
+  if (cmd === '/start') { await sendDashboard(config, tg); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU }); }
+  if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config) + (opts.ownerPrivate ? '\n\n🔒 Riêng bạn: 📑 Kết quả KD (/ketqua) — báo cáo kết quả kinh doanh B02, kỳ này so với kỳ trước.' : ''), { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);
   if (cmd === '/cuoingay') return handleDaily(config, tg, { ...opts, fresh: true });
+  if (cmd === '/ketqua') return opts.ownerPrivate ? sendPeriodPicker(tg, '', 'fin', state) : tg.sendMessage(FIN_DENIED);
   if (cmd === '/quytien') return sendPeriodPicker(tg, '', 'cash', state);
   if (cmd === '/congnoncc') return sendPeriodPicker(tg, '', 'ap', state);
   if (cmd === '/baocao') return handleReport(config, tg, { fresh: false, ...opts });
@@ -741,7 +786,7 @@ export async function runBot(config, opts = {}) {
       const t = id === String(tg.chatId) ? tg : telegramOf({ ...config, secrets: { ...config.secrets, telegramChatId: id } });
       t.waiters = tg.waiters; t.pollerActive = true; // dùng chung danh sách chờ quyết định "đăng nhập tiếp?"
       const st = { awaitingRange: null, cal: null, pick: null };
-      ctxs.set(id, { tg: t, state: st, opts: { ...opts, state: st } });
+      ctxs.set(id, { tg: t, state: st, opts: { ...opts, state: st, ownerPrivate: id === owner } }); // chat riêng của chủ bot có mã = mã chủ bot
     }
     return ctxs.get(id);
   };
@@ -844,7 +889,7 @@ export async function runBot(config, opts = {}) {
           const job = retries.get(cq.data.slice(2));
           if (job) dispatch(job.tg, job.work);
           else await t.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo.').catch(() => {});
-        } else if (/^[skpqhjmnruvwz]:/.test(cq.data ?? '')) {
+        } else if (/^[skpqhjmnruvwzfe]:/.test(cq.data ?? '')) {
           await answer();
           dispatch(t, () => handleCallbackData(config, t, cq.data, o));
         } else await t.handleCallback(cq).catch(() => {});
