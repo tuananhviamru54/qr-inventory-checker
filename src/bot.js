@@ -110,6 +110,11 @@ const dbLabel = (config) => [config.secrets.targetDb, config.branchName && `📍
 
 // ---- Trang chủ (dashboard): logo + các ô báo cáo bấm được ----
 const LOGO = fileURLToPath(new URL('../assets/logo.jpg', import.meta.url));
+/** Logo theo phạm vi đang xem (chi nhánh → công ty → logo mặc định). */
+export const logoOf = (config, logo = config.logo) => {
+  const f = logo ? path.resolve(config.root ?? '.', logo) : LOGO;
+  return fs.existsSync(f) ? f : LOGO;
+};
 const WEEKDAYS = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
 export const DASHBOARD_KEYBOARD = { inline_keyboard: [
   [{ text: '📊 Tồn kho', callback_data: 'k:menu' }, { text: '💵 Quỹ tiền', callback_data: 'm:menu' }],
@@ -168,14 +173,15 @@ export function companyDashboard(config, now = new Date()) {
 }
 export async function sendCompanyDashboard(config, tg) {
   const { caption, reply_markup } = companyDashboard(config);
-  try { await tg.sendFile(LOGO, caption, 'sendPhoto', { html: true, reply_markup }); } catch { await tg.sendMessage(caption, { reply_markup }); }
+  const tenants = tenantsOf(config);
+  try { await tg.sendFile(logoOf(config, (tenants.find((t) => t.top) ?? tenants[0])?.logo), caption, 'sendPhoto', { html: true, reply_markup }); } catch { await tg.sendMessage(caption, { reply_markup }); }
 }
 
 export async function sendDashboard(config, tg, { ownerPrivate = false } = {}) {
   const kb = dashboardKeyboard(ownerPrivate, (config.tenants?.length ?? 0) > 1);
   const caption = dashboardCaption(config) + (ownerPrivate ? '\n🔒 <i>Riêng bạn: Kết quả kinh doanh · Chi phí</i>' : '');
   try {
-    await tg.sendFile(LOGO, caption, 'sendPhoto', { html: true, reply_markup: kb });
+    await tg.sendFile(logoOf(config), caption, 'sendPhoto', { html: true, reply_markup: kb });
   } catch (e) {
     console.error(`Không gửi được ảnh trang chủ: ${e.message}`);
     await tg.sendMessage(caption, { reply_markup: kb }); // không gửi được ảnh → gửi chữ
@@ -475,6 +481,7 @@ export async function handleDaily(config, tg, { fresh = false, headed, date } = 
       buildDailyMessage({ date: today, targetDb: dbLabel(config), ds, updatedAt, brand: config.brand }),
       supervisionSection(data.supervision, data.blocked),
     ].filter(Boolean).join('\n\n');
+    await tg.sendFile(logoOf(config), '', 'sendPhoto').catch(() => {}); // logo công ty/chi nhánh trước bản tin
     await tg.sendMessage(message, {
       reply_markup: { inline_keyboard: [
         [{ text: '💵 Quỹ tiền', callback_data: 'm:today' }, { text: '💰 DS mặt hàng', callback_data: 's:today' }, { text: '👥 DS khách', callback_data: 'h:today' }],

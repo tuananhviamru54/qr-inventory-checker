@@ -1715,7 +1715,8 @@
       "id": "qn",
       "name": "Kho Quảng Ninh",
       "brand": "TỔNG KHO NHỰA ECOPLAST QUẢNG NINH",
-      "default": true
+      "default": true,
+      "logo": "assets/logo.jpg"
     },
     {
       "id": "tf",
@@ -1750,14 +1751,16 @@
           "icon": "🏭",
           "codes": [
             "KHO ĐỒNG NAI"
-          ]
+          ],
+          "logo": "assets/logo-dongnai.jpg"
         },
         {
           "name": "Kho Miền Tây",
           "icon": "🏭",
           "codes": [
             "KHO MIỀN TÂY"
-          ]
+          ],
+          "logo": "assets/logo-mientay.jpg"
         },
         {
           "name": "Kho Vĩnh Phúc",
@@ -1767,7 +1770,8 @@
           ]
         }
       ],
-      "top": true
+      "top": true,
+      "logo": "assets/logo-thefive.jpg"
     }
   ]
 }

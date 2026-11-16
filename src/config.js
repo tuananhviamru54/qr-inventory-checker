@@ -59,7 +59,7 @@ export function scopeConfig(config, tenantId, branchIndex) {
   if (tenantId === SYSTEM_ID) { // Toàn hệ thống: mọi công ty, mỗi công ty ở phạm vi rộng nhất (chi nhánh đầu = toàn công ty)
     const subs = tenantsOf(config).map((t) => scopeConfig(config, t.id, 0));
     const def = tenantConfig(config, defaultTenantId(config));
-    return { ...def, tenant: SYSTEM_ID, tenantName: 'Toàn hệ thống', branchName: `Toàn hệ thống (${subs.map((x) => x.tenantName).join(' + ')})`, system: subs,
+    return { ...def, logo: tenantsOf(config).find((t) => t.top)?.logo ?? def.logo, tenant: SYSTEM_ID, tenantName: 'Toàn hệ thống', branchName: `Toàn hệ thống (${subs.map((x) => x.tenantName).join(' + ')})`, system: subs,
       secrets: { ...def.secrets, targetDb: subs.map((x) => x.secrets.targetDb).filter(Boolean).join(' + ') }, dirs: { ...def.dirs, downloads: path.join(def.dirs.downloads, '_system') } };
   }
   const c = tenantConfig(config, tenantId);
@@ -67,7 +67,7 @@ export function scopeConfig(config, tenantId, branchIndex) {
   const b = t?.branches?.[branchIndex ?? 0];
   if (!b) return c;
   const slug = `cn${branchIndex ?? 0}`;
-  return { ...c, branchName: b.name, branchIndex: branchIndex ?? 0, branchCodes: b.codes, dirs: { ...c.dirs, downloads: path.join(c.dirs.downloads, slug) } };
+  return { ...c, logo: b.logo ?? c.logo, branchName: b.name, branchIndex: branchIndex ?? 0, branchCodes: b.codes, dirs: { ...c.dirs, downloads: path.join(c.dirs.downloads, slug) } };
 }
 
 export const tenantsOf = (config) => (config.tenants?.length ? config.tenants : [{ id: 'default', name: config.title, default: true }]);
@@ -79,7 +79,7 @@ export const defaultTenantId = (config) => (tenantsOf(config).find((t) => t.defa
  */
 export function tenantConfig(config, id) {
   const t = tenantsOf(config).find((x) => x.id === id) ?? tenantsOf(config).find((x) => x.default);
-  if (!t || t.default) return { ...config, tenant: t?.id ?? 'default', tenantName: t?.name, brand: t?.brand };
+  if (!t || t.default) return { ...config, tenant: t?.id ?? 'default', tenantName: t?.name, brand: t?.brand, logo: t?.logo };
   const env = readEnvFile(path.resolve(config.root, t.envFile ?? `.env.${t.id}`));
   const r = (p, d) => path.resolve(config.root, p ?? d);
   return {
@@ -87,6 +87,7 @@ export function tenantConfig(config, id) {
     tenant: t.id,
     tenantName: t.name,
     brand: t.brand,
+    logo: t.logo,
     dirs: { ...config.dirs, profile: r(t.profile, `.auth-${t.id}/profile`), downloads: r(t.downloads, `downloads/${t.id}`) },
     secrets: {
       ...config.secrets,
