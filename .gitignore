@@ -7,3 +7,4 @@ data/telegram-access.json
 .env.*
 !.env.example
 .auth*/
+amis-bot.zip
