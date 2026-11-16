@@ -187,7 +187,7 @@ Dùng các nút dưới ô nhập tin:
 ${BTN.refresh} — vào AMIS lấy dữ liệu mới rồi gửi báo cáo đối chiếu
 ${BTN.stock} — tồn kho theo kỳ (Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · Tùy chọn ngày) và Nhóm VTHH: đầu kỳ, nhập, xuất, cuối kỳ, giá trị
 ${BTN.sales} — doanh số từng mặt hàng kèm doanh thu, lọc theo Nhóm VTHH: Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · Tùy chọn ngày
-${BTN.salesKh} — doanh số từng khách hàng kèm doanh thu thuần, lãi gộp (cùng các kỳ như trên)
+${BTN.salesKh} — doanh số từng khách hàng kèm doanh thu thuần, lãi gộp; chọn được Nhóm VTHH như doanh số mặt hàng
 ${BTN.ar} — công nợ phải thu (TK 131): dư đầu kỳ, phát sinh, dư cuối kỳ, top khách còn nợ
 ${BTN.ap} — công nợ phải trả (TK 331) theo nhà cung cấp
 ${BTN.cash} — tổng tiền hiện có: tồn quỹ tiền mặt (thu, chi, các khoản lớn nhất) và số dư từng tài khoản ngân hàng
@@ -277,7 +277,7 @@ const vnTime = (ms) => new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi
 export async function beginSales(config, tg, range, opts = {}) {
   const state = opts.state ?? defaultState;
   const mode = opts.mode ?? state.mode ?? 'sales';
-  const list = ['ar', 'ap', 'salesKh', 'cash', 'fin', 'cost'].includes(mode) ? [] : loadGroups(config); // toàn hệ thống: hợp nhóm của các sổ // công nợ không có bước chọn Nhóm VTHH
+  const list = ['ar', 'ap', 'cash', 'fin', 'cost'].includes(mode) ? [] : loadGroups(config); // toàn hệ thống: hợp nhóm của các sổ // công nợ không có bước chọn Nhóm VTHH
   if (!list.length) return runReport(config, tg, mode, range, opts); // chưa có danh sách nhóm → lấy tất cả
   state.pick = { range, list, selected: new Set(), mode };
   await tg.sendMessage(groupText(state.pick), { reply_markup: groupKeyboard(state.pick) });
@@ -657,10 +657,21 @@ export async function handleStock(config, tg, range, { fresh = false, headed, gr
   }
 }
 
+/** Gộp các dòng (khách × mặt hàng) thành 1 dòng mỗi khách, cộng các cột số. */
+export function sumByCustomer(rows) {
+  const m = new Map();
+  for (const r of rows) {
+    const x = m.get(r.ma_kh);
+    if (!x) { m.set(r.ma_kh, { ...r }); continue; }
+    for (const [k, v] of Object.entries(r)) if (typeof v === 'number') x[k] = (x[k] ?? 0) + v;
+  }
+  return [...m.values()];
+}
+
 export async function handleSales(config, tg, range, { fresh = false, headed, groups = [], by = 'item' } = {}) {
   const cust = by === 'customer';
-  if (cust) groups = [];
-  const sourceId = cust ? 'doanh_so_kh' : 'doanh_so';
+  // AMIS "theo khách hàng" không có ô lọc Nhóm VTHH → khi chọn nhóm dùng báo cáo "theo mặt hàng và khách hàng" rồi cộng theo khách
+  const sourceId = cust ? (groups.length ? 'doanh_so_kh_nhom' : 'doanh_so_kh') : 'doanh_so';
   const what = cust ? 'doanh số theo khách hàng' : 'doanh số theo mặt hàng';
   const period = { fromDate: range.fromDate, toDate: range.toDate, today: resolvePeriod('today').today };
   const fileKey = `${sourceId}__${range.fromDate.replace(/\//g, '-')}_${range.toDate.replace(/\//g, '-')}${groups.length ? `__${groupsKey(groups)}` : ''}`;
@@ -671,9 +682,10 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
   try {
     const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s), period, sourceIds: [sourceId], fileKeys: { [sourceId]: fileKey }, vars: { groups: groups.join('|') } });
     await progress.stage('send');
-    const ds = data.datasets[sourceId];
+    let ds = data.datasets[sourceId];
+    if (sourceId === 'doanh_so_kh_nhom' && ds.rows) ds = { ...ds, rows: sumByCustomer(ds.rows) };
     if (ds.error?.includes('NO_DATA')) {
-      await tg.sendMessage(`ℹ️ <b>Không có ${what} — ${escapeHtml(range.label)}</b>${groups.length ? `\n📦 Nhóm VTHH: ${escapeHtml(groups.join(', '))}` : ''}\nAMIS báo "Không có dữ liệu" cho kỳ${cust ? '' : ' và nhóm'} này (không phải lỗi).`);
+      await tg.sendMessage(`ℹ️ <b>Không có ${what} — ${escapeHtml(range.label)}</b>${groups.length ? `\n📦 Nhóm VTHH: ${escapeHtml(groups.join(', '))}` : ''}\nAMIS báo "Không có dữ liệu" cho kỳ${groups.length ? ' và nhóm' : ''} này (không phải lỗi).`);
       await progress.finish(true);
       return { message: null };
     }
@@ -697,7 +709,7 @@ export async function handleSales(config, tg, range, { fresh = false, headed, gr
     // dọn các file doanh số theo kỳ đã cũ (> 2 ngày)
     for (const f of fs.existsSync(config.dirs.downloads) ? fs.readdirSync(config.dirs.downloads) : []) {
       const full = path.join(config.dirs.downloads, f);
-      if ((f.startsWith('doanh_so__') || f.startsWith('doanh_so_kh__')) && Date.now() - fs.statSync(full).mtimeMs > 2 * 864e5) fs.rmSync(full, { force: true });
+      if ((f.startsWith('doanh_so__') || f.startsWith('doanh_so_kh__') || f.startsWith('doanh_so_kh_nhom__')) && Date.now() - fs.statSync(full).mtimeMs > 2 * 864e5) fs.rmSync(full, { force: true });
     }
     await progress.finish(true);
     return { message };
