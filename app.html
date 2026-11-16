@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kiểm Kho QR</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --text:#1d2330; --muted:#6b7280; --ok:#15803d; --bad:#b91c1c; --accent:#2563eb; --line:#e5e7eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b22; --text:#e7e9ee; --muted:#9aa1ad; --ok:#4ade80; --bad:#f87171; --accent:#60a5fa; --line:#2a2f3a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:720px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:8px 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  input { flex:1; min-width:0; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font-size:1rem; }
+  button { padding:10px 14px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:1rem; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  #reader { width:100%; margin-top:12px; }
+  #result { font-weight:600; min-height:1.4em; margin-top:12px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:8px; border-bottom:1px solid var(--line); text-align:left; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .done td { color:var(--ok); }
+  .over td { color:var(--bad); }
+  .muted { color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>📦 Kiểm Kho QR</h1>
+
+  <section class="card">
+    <div class="row">
+      <input id="code" placeholder="Nhập hoặc quét mã sản phẩm" autocomplete="off" />
+      <button id="checkBtn">Kiểm tra</button>
+      <button id="camBtn" class="ghost">📷 Camera</button>
+    </div>
+    <div id="reader"></div>
+    <div id="result"></div>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:0;font-size:1.1rem">Đơn hàng</h2>
+    <table>
+      <thead><tr><th>Mã</th><th>Tên</th><th class="num">Đã quét / Cần</th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+    <p class="muted" id="summary"></p>
+    <div class="row">
+      <button id="exportBtn" class="ghost">Xuất CSV</button>
+      <button id="resetBtn" class="ghost">Làm lại</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:0;font-size:1.1rem">Thêm sản phẩm</h2>
+    <div class="row">
+      <input id="newCode" placeholder="Mã (vd SP004)" />
+      <input id="newName" placeholder="Tên" />
+      <input id="newQty" type="number" min="1" value="1" style="max-width:80px" />
+      <button id="addBtn">Thêm</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const KEY = 'qr-inventory-v1';
+const defaults = [
+  { code:'SP001', name:'Áo thun', need:3, got:0 },
+  { code:'SP002', name:'Quần jean', need:2, got:0 },
+  { code:'SP003', name:'Mũ lưỡi trai', need:1, got:0 },
+];
+let items;
+try { items = JSON.parse(localStorage.getItem(KEY)) || defaults; } catch { items = defaults; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch {} };
+const $ = id => document.getElementById(id);
+
+function render() {
+  $('list').innerHTML = '';
+  for (const it of items) {
+    const tr = document.createElement('tr');
+    if (it.got === it.need) tr.className = 'done';
+    if (it.got > it.need) tr.className = 'over';
+    [it.code, it.name, `${it.got} / ${it.need}`].forEach((v, i) => {
+      const td = document.createElement('td'); td.textContent = v;
+      if (i === 2) td.className = 'num';
+      tr.appendChild(td);
+    });
+    $('list').appendChild(tr);
+  }
+  const done = items.filter(i => i.got >= i.need).length;
+  $('summary').textContent = `Hoàn thành ${done}/${items.length} mặt hàng`;
+}
+
+function show(msg, ok) { $('result').textContent = msg; $('result').className = ok ? 'ok' : 'bad'; }
+
+function check(raw) {
+  const code = raw.trim().toUpperCase();
+  if (!code) return;
+  const it = items.find(i => i.code === code);
+  if (!it) { show(`❌ ${code}: không có trong đơn hàng`, false); beep(220); return; }
+  it.got++;
+  save(); render();
+  if (it.got > it.need) { show(`⚠️ ${code}: quét thừa (${it.got}/${it.need})`, false); beep(220); }
+  else { show(`✅ ${it.name} (${it.got}/${it.need})`, true); beep(880); }
+}
+
+function beep(f) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); o.frequency.value = f; o.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.12);
+  } catch {}
+}
+
+$('checkBtn').onclick = () => { check($('code').value); $('code').value = ''; $('code').focus(); };
+$('code').onkeydown = e => { if (e.key === 'Enter') $('checkBtn').click(); };
+
+let scanner = null, last = '', lastAt = 0;
+$('camBtn').onclick = async () => {
+  if (scanner) { await scanner.stop(); scanner.clear(); scanner = null; $('camBtn').textContent = '📷 Camera'; return; }
+  if (!window.Html5Qrcode) { show('Không tải được thư viện quét QR', false); return; }
+  scanner = new Html5Qrcode('reader');
+  try {
+    await scanner.start({ facingMode:'environment' }, { fps:10, qrbox:220 }, text => {
+      const now = Date.now();
+      if (text === last && now - lastAt < 2000) return; // chống quét trùng liên tục
+      last = text; lastAt = now; check(text);
+    });
+    $('camBtn').textContent = '⏹ Dừng';
+  } catch (e) { show('Không mở được camera: ' + e, false); scanner = null; }
+};
+
+$('addBtn').onclick = () => {
+  const code = $('newCode').value.trim().toUpperCase();
+  const name = $('newName').value.trim() || code;
+  const need = Math.max(1, parseInt($('newQty').value) || 1);
+  if (!code) return;
+  const ex = items.find(i => i.code === code);
+  if (ex) { ex.name = name; ex.need = need; } else items.push({ code, name, need, got:0 });
+  $('newCode').value = $('newName').value = ''; $('newQty').value = 1;
+  save(); render();
+};
+
+$('resetBtn').onclick = () => { if (confirm('Đặt lại số đã quét?')) { items.forEach(i => i.got = 0); save(); render(); show('', true); } };
+
+$('exportBtn').onclick = () => {
+  const csv = 'Ma,Ten,Can,DaQuet\n' + items.map(i => `${i.code},"${i.name.replace(/"/g,'""')}",${i.need},${i.got}`).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv' }));
+  a.download = 'kiem-kho.csv'; a.click();
+};
+
+render();
+</script>
+</body>
+</html>
