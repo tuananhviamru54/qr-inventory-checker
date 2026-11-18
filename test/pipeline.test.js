@@ -282,7 +282,7 @@ test('không dùng AI: tra cứu theo mã, tồn âm, tổng tồn; câu lạ �
     assert.match(lastText(), /Tổng số lượng tồn cuối kỳ: <b>1\.007,5<\/b>|Tổng số lượng tồn cuối kỳ: <b>1\.352,5<\/b>|Tổng số lượng tồn cuối kỳ: <b>[\d.,]+<\/b>/);
 
     await handleUpdate(config, tg, 'Thời tiết hôm nay thế nào?');
-    assert.match(lastText(), /Chưa hiểu câu hỏi này/);
+    assert.match(lastText(), /không rõ nội dung nên bot không xử lý/);
     assert.equal(mock.state.ai.length, 0); // không có lời gọi AI nào (kể cả giám sát)
     assert.equal(mock.state.exports.length, 1); // 4 câu hỏi nhưng chỉ vào AMIS 1 lần
 

@@ -913,8 +913,22 @@ export async function handleUpdate(config, tg, text, opts = {}) {
 
   const intent = parseSalesIntent(text);
   if (intent) { state.mode = 'sales'; return salesIntent(config, tg, intent, opts); }
+  if (!isOnTopic(text)) { // câu không rõ chủ đề: từ chối ngay, không đăng nhập AMIS; trong nhóm thì im lặng để không làm phiền
+    if (opts.group) return null;
+    return tg.sendMessage(OFF_TOPIC, { reply_markup: MENU });
+  }
   return handleQuestion(config, tg, text, opts);
 }
+
+// Chủ đề bot nhận: kho, hàng, doanh số, công nợ, tiền, báo cáo… hoặc có mã hàng (chữ + số, vd A10_2, 8H-ĐV)
+const TOPIC = / (ton|kho|hang hoa|mat hang|ma hang|vat tu|vthh|nhom hang|doanh (so|thu)|ban hang|ban ra|mua hang|nhap|xuat|cong no|phai (thu|tra)|no phai|khach hang|nha cung cap|ncc|quy tien|tien mat|tien gui|ngan hang|so du|lai gop|lai lo|loi nhuan|gia von|chi phi|cuoc|bao cao|ket qua|kiem ke|am kho|ton am|tong|so luong|gia tri) /;
+export const isOnTopic = (text) => {
+  const t = String(text ?? '').trim();
+  if (t.length < 3) return false;
+  if (/[A-Za-z]+[\d_-]+[\w-]*|\d+[A-Za-z_-]+/.test(t)) return true; // giống mã hàng
+  return TOPIC.test(` ${norm(t)} `);
+};
+export const OFF_TOPIC = '🚫 Bot chỉ trả lời câu hỏi về <b>số liệu kế toán – kho</b> (tồn kho, doanh số, công nợ, quỹ tiền, mã hàng…). Câu này không rõ nội dung nên bot không xử lý.\nHãy bấm một nút bên dưới hoặc hỏi rõ, ví dụ: <i>"A10_2 còn bao nhiêu?"</i>, <i>"doanh số tháng này"</i>.';
 
 function salesIntent(config, tg, intent, opts) {
   if (intent?.key) return beginSales(config, tg, periodOf(intent.key), opts);
@@ -956,7 +970,7 @@ export async function runBot(config, opts = {}) {
       const t = id === String(tg.chatId) ? tg : telegramOf({ ...config, secrets: { ...config.secrets, telegramChatId: id } });
       t.waiters = tg.waiters; t.pollerActive = true; // dùng chung danh sách chờ quyết định "đăng nhập tiếp?"
       const st = { awaitingRange: null, cal: null, pick: null };
-      ctxs.set(id, { tg: t, state: st, opts: { ...opts, state: st, ownerPrivate: id === owner } }); // chat riêng của chủ bot có mã = mã chủ bot
+      ctxs.set(id, { tg: t, state: st, opts: { ...opts, state: st, ownerPrivate: id === owner, group: id.startsWith('-') } }); // chat riêng của chủ bot có mã = mã chủ bot
     }
     return ctxs.get(id);
   };

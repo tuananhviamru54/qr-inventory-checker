@@ -7,6 +7,7 @@
 - Tài khoản AMIS đang được người khác dùng → bot hỏi qua Telegram, **không tự đăng nhập đè**.
 - Bí mật (`.env`, `.env.misa2`, `data/telegram-access.json`) không bao giờ commit, không in ra log/chat.
 - Báo cáo Kết quả kinh doanh và Chi phí: **chỉ chủ bot, chỉ khi nhắn riêng**.
+- Câu hỏi không rõ chủ đề (không về kho, doanh số, công nợ, tiền, mã hàng…): từ chối ngay, không đăng nhập AMIS; trong nhóm thì im lặng.
 
 ## Chạy
 - Cần Node.js ≥ 20.12. `npm install` rồi `npx playwright install chromium`.
