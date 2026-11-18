@@ -58,12 +58,21 @@ function supervisionDelta(now, before) {
   d.deniedList = (now.deniedList ?? []).slice(before.deniedList?.length ?? 0);
   return d;
 }
-function setConcurrentHandler(session, config, tg) {
+export function setConcurrentHandler(session, config, tg, auto = null) {
   if (!tg) { session.onConcurrent = null; return; }
   const timeoutMs = config.amis.concurrentDecisionMs ?? 600000;
-  session.onConcurrent = (detail) => tg.ask(
-    `🚨 <b>${escapeHtml(config.title)}</b>\nAMIS báo tài khoản đang được dùng ở nơi khác:\n<i>${escapeHtml(detail)}</i>\n\nNếu đăng nhập tiếp, người đang dùng sẽ bị <b>đăng xuất khỏi AMIS</b> (có thể mất dữ liệu đang nhập dở).\nBạn muốn bot đăng nhập tiếp không? Không trả lời trong ${Math.round(timeoutMs / 60000) || '<1'} phút, bot tự huỷ.`,
-    { timeoutMs });
+  // auto = { used, limit }: báo cáo hằng ngày tự đăng nhập tiếp tối đa `limit` lần trong 1 lượt; lần sau đó vẫn hỏi như thường
+  session.allowRepeat = !!auto;
+  session.onConcurrent = async (detail) => {
+    if (auto && auto.used < auto.limit) {
+      auto.used++;
+      await tg.sendMessage(`ℹ️ <b>${escapeHtml(config.title)}</b> · Báo cáo cuối ngày: AMIS báo tài khoản đang được dùng ở nơi khác (<i>${escapeHtml(detail)}</i>). Bot <b>tự đăng nhập tiếp</b> (lần ${auto.used}/${auto.limit} trong lượt này; người đang dùng sẽ bị đăng xuất).`).catch(() => {});
+      return 'yes';
+    }
+    return tg.ask(
+      `🚨 <b>${escapeHtml(config.title)}</b>\nAMIS báo tài khoản đang được dùng ở nơi khác:\n<i>${escapeHtml(detail)}</i>${auto ? `\n\nBáo cáo cuối ngày đã tự đăng nhập tiếp ${auto.used} lần trong lượt này nên giờ dừng lại hỏi bạn.` : ''}\n\nNếu đăng nhập tiếp, người đang dùng sẽ bị <b>đăng xuất khỏi AMIS</b> (có thể mất dữ liệu đang nhập dở).\nBạn muốn bot đăng nhập tiếp không? Không trả lời trong ${Math.round(timeoutMs / 60000) || '<1'} phút, bot tự huỷ.`,
+      { timeoutMs });
+  };
 }
 
 /**
@@ -130,7 +139,7 @@ const fileAgeOf = (config, key) => {
   return f ? (Date.now() - fs.statSync(f).mtimeMs) / 60000 : Infinity;
 };
 
-async function collectOne(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {}, vars = {} } = {}) {
+async function collectOne(config, { download = true, headed = false, log = console.log, onStage = () => {}, tg = null, period: periodOverride, sourceIds, fileKeys = {}, vars = {}, autoTakeover = null } = {}) {
   const period = periodOverride ?? resolvePeriod(config.period);
   const datasets = {};
   // mặc định bỏ qua các nguồn onDemand (ví dụ báo cáo doanh số chỉ lấy khi được yêu cầu)
@@ -151,10 +160,10 @@ async function collectOne(config, { download = true, headed = false, log = conso
         if (!session) {
           session = new AmisSession(config, { headed, log });
           await session.open();
-          setConcurrentHandler(session, config, tg);
+          setConcurrentHandler(session, config, tg, autoTakeover);
           await session.login(config.secrets);
           await session.verifyDatabase(config.secrets.targetDb);
-        } else setConcurrentHandler(session, config, tg);
+        } else setConcurrentHandler(session, config, tg, autoTakeover);
       } catch (e) {
         const shot = session.page ? await session.screenshot('loi-dang-nhap') : null;
         await session.close();

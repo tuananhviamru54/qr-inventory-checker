@@ -104,14 +104,14 @@ export class AmisSession {
   async resolveConcurrent() {
     const detail = await this.concurrentSessionNotice();
     if (!detail) return false;
-    if (this.concurrentHandled || !this.onConcurrent) this.throwConcurrent(detail);
+    if ((this.concurrentHandled && !this.allowRepeat) || !this.onConcurrent) this.throwConcurrent(detail);
     const decision = await this.onConcurrent(detail);
     const stamp = new Date().toISOString();
     await fs.appendFile(path.join(this.dirs.output, 'giam-sat.log'), `${stamp}\tQUYẾT ĐỊNH CỦA NGƯỜI DÙNG\t${decision}\t${detail}\n`).catch(() => {});
     if (decision === 'no') this.throwConcurrent(detail, 'Bạn đã chọn huỷ nên bot không đăng nhập và không đụng tới phiên của người đang dùng.');
     if (decision !== 'yes') this.throwConcurrent(detail, 'Không nhận được quyết định của bạn trong thời gian chờ nên bot tự huỷ để bảo đảm an toàn.');
     this.concurrentHandled = true;
-    this.log('→ Bạn đã đồng ý: đăng nhập tiếp (người đang dùng sẽ bị đăng xuất)');
+    this.log(this.allowRepeat ? '→ Đăng nhập tiếp (báo cáo cuối ngày)' : '→ Bạn đã đồng ý: đăng nhập tiếp (người đang dùng sẽ bị đăng xuất)');
     // Thao tác duy nhất được phép bấm nút này, chỉ sau khi người dùng đồng ý; nằm ngoài safeClick vì nút bị cấm trong luật cứng.
     await this.page.locator("button:has-text('Tiếp tục đăng nhập')").first().click();
     await this.page.waitForTimeout(2000);

@@ -452,7 +452,7 @@ export async function handleCash(config, tg, range, { fresh = false, headed } = 
 
 // ---- Báo cáo cuối ngày: 7 báo cáo AMIS trong 1 lần đăng nhập → 1 tin tóm tắt ----
 const DAILY_SOURCES = { cash: 'quy_tien_mat', bank: 'so_du_ngan_hang', sales: 'doanh_so', salesKh: 'doanh_so_kh', ar: 'cong_no_phai_thu', ap: 'cong_no_phai_tra', stock: 'ton_kho_nhom' };
-export async function handleDaily(config, tg, { fresh = false, headed, date } = {}) {
+export async function handleDaily(config, tg, { fresh = false, headed, date, autoTakeover = null } = {}) {
   const today = date ?? resolvePeriod('today').today;
   const period = { fromDate: today, toDate: today, today };
   const suffix = `__${today.replace(/\//g, '-')}_${today.replace(/\//g, '-')}`;
@@ -464,7 +464,7 @@ export async function handleDaily(config, tg, { fresh = false, headed, date } = 
   const progress = new Progress(tg, { title: `Đang lập báo cáo cuối ngày ${today}…`, stages, timingsFile: timingsFile(config), tickMs: config.bot.tickMs });
   await progress.start();
   try {
-    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s === 'export' ? 'exportDaily' : s), period, sourceIds: ids, fileKeys, vars: { groups: '' } });
+    const data = await collect(config, { download: !reuse, headed, tg, log: () => {}, onStage: (s) => progress.stage(s === 'export' ? 'exportDaily' : s), period, sourceIds: ids, fileKeys, vars: { groups: '' }, autoTakeover });
     const ds = Object.fromEntries(Object.entries(DAILY_SOURCES).map(([k, id]) => [k, data.datasets[id]]));
     // luỹ kế năm theo mặt hàng: xuất thêm doanh số 01/01 → hôm nay (dùng lại phiên AMIS đang mở)
     const ytdFrom = `01/01/${today.slice(-4)}`;
@@ -1048,7 +1048,8 @@ export async function runBot(config, opts = {}) {
       console.log(`Báo cáo cuối ngày: gửi lúc ${daily.time} (sau ${Math.round(wait / 60000)} phút)`);
       setTimeout(() => {
         const targets = groups().length ? groups() : [owner];
-        targets.forEach((chat) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(cfgOf(chat), c.tg, { ...c.opts, fresh: true })); });
+        const auto = { used: 0, limit: 2 }; // lượt báo cáo 17:30: tự đăng nhập tiếp 2 lần, lần thứ 3 dừng lại hỏi
+        targets.forEach((chat) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(cfgOf(chat), c.tg, { ...c.opts, fresh: true, autoTakeover: auto })); });
         plan();
       }, wait).unref?.();
     };

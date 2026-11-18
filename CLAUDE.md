@@ -5,6 +5,7 @@
   Mã có 2 lớp bảo vệ: chặn nút ghi trên giao diện (`src/readonly.js`) và chặn POST có đường dẫn ghi ở tầng mạng. Không được nới lỏng.
 - **Không can thiệp sửa mã hay cấu hình ở hệ thống AMIS.** Chỉ thay đổi mã của dự án này.
 - Tài khoản AMIS đang được người khác dùng → bot hỏi qua Telegram, **không tự đăng nhập đè**.
+  Ngoại lệ duy nhất: báo cáo cuối ngày tự động 17:30 được tự đăng nhập tiếp tối đa 2 lần mỗi lượt (có báo lại), lần thứ 3 phải dừng lại hỏi.
 - Bí mật (`.env`, `.env.misa2`, `data/telegram-access.json`) không bao giờ commit, không in ra log/chat.
 - Báo cáo Kết quả kinh doanh và Chi phí: **chỉ chủ bot, chỉ khi nhắn riêng**.
 - Câu hỏi không rõ chủ đề (không về kho, doanh số, công nợ, tiền, mã hàng…): từ chối ngay, không đăng nhập AMIS; trong nhóm thì im lặng.
