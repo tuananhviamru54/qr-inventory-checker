@@ -1773,5 +1773,10 @@
       "top": true,
       "logo": "assets/logo-thefive.jpg"
     }
-  ]
+  ],
+  "bot": {
+    "dailyReport": {
+      "tenant": "all"
+    }
+  }
 }
