@@ -1,1 +1,279 @@
 # qr-inventory-checker
+
+## Bot đối chiếu MISA AMIS → Telegram
+
+Ứng dụng tự động:
+
+1. **Đăng nhập** MISA AMIS bằng trình duyệt tự động (Playwright).
+2. **Xuất báo cáo** ra file Excel (mặc định: *Tổng hợp tồn kho*).
+3. **Kiểm tra chéo** số liệu:
+   - Tồn kho AMIS ↔ file kiểm kê thực tế (`data/kiem_ke.xlsx`)
+   - Cân đối: đầu kỳ + nhập − xuất = cuối kỳ
+   - Cảnh báo tồn kho âm
+4. **Gửi kết quả về Telegram**: tin tóm tắt + file Excel chi tiết chênh lệch. Nếu đăng nhập/xuất báo cáo lỗi, bot gửi thông báo lỗi kèm ảnh chụp màn hình.
+
+> Các bước trong `config.json` đã được chạy thật với AMIS Kế toán (`actapp.misa.vn`): đăng nhập, mở báo cáo
+> *Tổng hợp tồn kho*, đặt kỳ, chọn tất cả kho, xuất Excel (dạng dữ liệu) và tải file. Nếu MISA đổi giao diện, xem mục
+> [Hiệu chỉnh bước xuất báo cáo](#hiệu-chỉnh-bước-xuất-báo-cáo).
+
+### Nguyên tắc cốt lõi: CHỈ ĐỌC
+
+Bot chỉ đọc và xuất báo cáo, không ghi đè hay thao tác làm thay đổi dữ liệu AMIS. Có hai lớp chặn luôn bật,
+không có tuỳ chọn tắt (`src/readonly.js`):
+
+1. **Lớp giao diện** — trước mỗi lần bấm, bot đọc chữ trên nút; nếu là thao tác ghi (Cất, Lưu, Ghi sổ, Bỏ ghi, Xoá,
+   Sửa, Thêm, Nhân bản, Nhập khẩu, Duyệt, Kết chuyển, Khoá sổ, Tính giá, Cập nhật...) thì từ chối và báo lỗi.
+   Phím bấm chỉ cho phép Enter/Escape/Tab/mũi tên. Bot chỉ điền vào ô tham số báo cáo (ngày tháng).
+2. **Lớp mạng** — chặn mọi yêu cầu `PUT`/`PATCH`/`DELETE`, và các yêu cầu `POST` có đường dẫn mang nghĩa ghi
+   (save, insert, update, delete, post, import, upload, approve...). Yêu cầu bị chặn được nêu trong tin Telegram;
+   mọi yêu cầu không phải GET đều được ghi vào `output/nhat-ky-yeu-cau.log` để rà soát.
+
+Nếu một yêu cầu *đọc* hợp lệ bị chặn nhầm (báo cáo không tải được), thêm mẫu URL vào `amis.readOnly.allowPost`
+trong `config.json` sau khi đã chắc chắn nó chỉ đọc dữ liệu. Hiện có đúng một ngoại lệ:
+`/api/export/v1/export/save_param` — đây là lệnh AMIS dùng để tạo file Excel xuất ra (lưu tham số của lần xuất, không
+đụng tới chứng từ hay sổ sách); thiếu nó thì không xuất được.
+
+Trang AMIS tự gửi vài yêu cầu nền khi mở (ví dụ lưu bố cục thanh bên `layout/slidebar/save`); các yêu cầu này bị chặn
+và được liệt kê cuối tin Telegram — đó là hoạt động bình thường của lớp chặn.
+
+> Lớp chặn mạng dựa trên từ khoá trong URL nên không thể bảo đảm tuyệt đối với API nội bộ của AMIS. **Bảo đảm chắc
+> chắn nhất là dùng một tài khoản AMIS riêng chỉ được phân quyền Xem/In/Xuất báo cáo** — khi đó chính AMIS từ chối
+> mọi thao tác ghi. Lưu ý `npm run codegen` là trình duyệt do bạn tự thao tác, không có lớp chặn này.
+
+### Bộ điều khiển trong Telegram
+
+Chạy `npm run bot`: khi khởi động bot đăng ký menu lệnh của Telegram và hiện **bàn phím cố định** dưới ô nhập tin:
+
+| Nút | Việc làm |
+|---|---|
+| 🔄 Lấy báo cáo mới nhất | Vào AMIS lấy dữ liệu mới (làm mới) rồi gửi báo cáo đối chiếu tồn kho (= `/moi`) |
+| 📊 Báo cáo tồn kho | Chọn kỳ (như doanh số) rồi chọn **Nhóm VTHH**: tồn đầu kỳ, nhập, xuất, cuối kỳ (số lượng và giá trị), tồn âm, top 10 theo giá trị, tự đối chiếu đầu kỳ + nhập − xuất = cuối kỳ (= `/tonkho`; báo cáo đối chiếu với kiểm kê vẫn là `/baocao`) |
+| 💰 Doanh số theo mặt hàng | Hiện bảng chọn kỳ: **Hôm nay · Hôm qua · Tuần này · Tháng này · Tháng trước · 📅 Tùy chọn ngày** rồi chọn Nhóm VTHH (= `/doanhso`) |
+| 👥 Doanh số theo khách hàng | Cùng bảng chọn kỳ; lấy từ báo cáo *Tổng hợp bán hàng theo khách hàng*: doanh số, chiết khấu, trả lại, doanh thu thuần, lãi gộp của từng khách (= `/doanhsokh`) |
+| 🏠 Trang chủ | Gửi logo **Tổng kho nhựa Ecoplast Quảng Ninh** kèm danh sách báo cáo và các ô bấm mở từng báo cáo (= `/start`) |
+| 📋 Báo cáo cuối ngày | Gom 7 báo cáo AMIS trong 1 lần đăng nhập thành 1 tin: tiền hiện có, bán hàng hôm nay (top khách, top mặt hàng), phải thu, phải trả, tồn kho, mục **Cần chú ý**. **Tự gửi lúc 17:30** hằng ngày (`bot.dailyReport: { "time": "17:30", "enabled": true }`); gõ `/cuoingay` để lấy ngay |
+| 📑 Kết quả KD (`/ketqua`) | **Chỉ chủ bot, chỉ trong chat riêng.** Báo cáo B02-DNN: doanh thu, giảm trừ, giá vốn, lợi nhuận gộp, chi phí, lợi nhuận trước/sau thuế — kỳ này so với kỳ trước (▲/▼ %), tỷ suất trên doanh thu, cảnh báo chưa kết chuyển giá vốn, tự kiểm công thức B02. Chọn kỳ: tháng, quý, năm hoặc tùy chọn ngày |
+| 💸 Chi phí (`/chiphi`) | **Chỉ chủ bot, chỉ trong chat riêng.** Từ *Bảng cân đối tài khoản* (F01): giá vốn 632, chi phí bán hàng 641, quản lý 642, tài chính 635, khác 811, thuế 821 — kỳ này so với kỳ trước liền kề, tỷ lệ trên doanh thu, lợi nhuận ước tính từ phát sinh thật (đúng cả khi chưa kết chuyển). Chọn kỳ: tháng 1…tháng hiện tại, quý, năm, tùy chọn ngày |
+| 💵 Quỹ tiền | Cùng bảng chọn kỳ; ghép *Sổ kế toán chi tiết quỹ tiền mặt* (TK 111: tồn đầu, thu, chi, tồn cuối, 5 khoản thu/chi lớn nhất, cảnh báo quỹ âm) với *Bảng kê số dư ngân hàng* (TK 112: số dư từng tài khoản) thành tổng tiền hiện có (= `/quytien`) |
+| 🧾 Công nợ khách hàng | Chọn kỳ rồi xem công nợ **phải thu** (TK 131): dư đầu kỳ, bán chịu, khách đã trả, dư cuối kỳ, top khách còn nợ, khách dư bên Có; tự đối chiếu với dòng "Tổng cộng" của AMIS (= `/congnokh`) |
+| 🏭 Công nợ nhà cung cấp | Tương tự cho công nợ **phải trả** (TK 331) (= `/congnoncc`) |
+| ❓ Hướng dẫn | Xem hướng dẫn (= `/trogiup`) |
+
+**Doanh số theo mặt hàng** lấy từ báo cáo *Tổng hợp bán hàng theo mặt hàng* của AMIS: doanh số bán, chiết khấu, hàng trả lại,
+giảm giá, **doanh thu thuần**, tiền vốn, lãi gộp, số lượng bán và top 10 mặt hàng theo doanh thu. Mọi con số do chương
+trình cộng từ file AMIS (không qua AI) và được đối chiếu với dòng "Tổng cộng" của chính AMIS (kèm kiểm tra doanh thu
+thuần = doanh số − chiết khấu − trả lại − giảm giá); lệch thì báo ⚠️. Tuần tính từ thứ Hai đến hôm nay.
+
+- **Chọn Nhóm VTHH:** sau khi chọn kỳ, bot hiện **danh sách Nhóm VTHH của AMIS** (CCDC, DV, HH, ALU, ECO, ECO+, Mẫu, LUX,
+  ECOSTAR, NC ECO+, NC ECO, NBĐ, PKK, PENCO, NPVC, NVL, TTT, TPVC, TP) để bấm chọn. Chọn được **nhiều nhóm** (bấm lần nữa
+  để bỏ), nút **📊 Xem TẤT CẢ nhóm** lấy toàn bộ. Chọn nhóm cha như **HH** là gồm cả các nhóm con (theo cách AMIS lọc).
+  Tin báo cáo ghi rõ "📦 Nhóm VTHH: …" và nút 🔄 Làm mới giữ nguyên nhóm đã chọn. Danh sách nhóm lưu ở
+  `data/nhom_vthh.json`; khi AMIS thêm/đổi nhóm, gõ **/capnhatnhom** để bot đọc lại từ AMIS (chỉ đọc).
+- **Tùy chọn ngày:** bấm 📅 sẽ hiện **lịch ngay trong tin nhắn**. Bấm ngày bắt đầu, rồi ngày kết thúc (hoặc nút "📌 Chỉ 1 ngày").
+  Có nút ‹ › đổi tháng, "↩ Chọn lại ngày bắt đầu", "📍 Về tháng này", "✖ Huỷ". Ngày ở tương lai và ngày trước ngày bắt
+  đầu bị khoá (hiện dấu "·"); hôm nay có dấu •. Thích gõ tay thì vẫn được: `01/11/2026 - 10/11/2026` hoặc 1 ngày
+  `10/11/2026` (thiếu năm thì lấy năm nay), gõ `huỷ` để thôi. Tối đa 366 ngày.
+- **Gõ tắt:** `/doanhso hôm qua`, `/doanhso 01/11/2026 - 10/11/2026`, hoặc gõ tự nhiên "doanh thu tuần này thế nào".
+- Dưới mỗi báo cáo có nút **🔄 Làm mới số liệu này** (luôn lấy lại từ AMIS) và **📅 Chọn kỳ khác**. Cùng một kỳ vừa lấy
+  trong 30 phút thì được dùng lại để trả lời nhanh; tin ghi rõ giờ lấy số liệu.
+- Khi một yêu cầu bị lỗi, bot gửi tin giải thích dễ hiểu kèm nút **🔁 Thử lại** để chạy lại đúng yêu cầu đó (nút hết hạn khi bot khởi động lại).
+- Bot xử lý từng yêu cầu một nhưng có hàng đợi: bấm nhiều báo cáo liền nhau (tối đa 5 yêu cầu chờ, chỉnh bằng `bot.maxQueue`) thì bot báo "🕒 Đã xếp hàng" rồi làm lần lượt, gửi kết quả theo thứ tự.
+- Ở chế độ bot, trình duyệt đã đăng nhập AMIS được giữ sẵn 10 phút sau mỗi yêu cầu (`bot.keepSessionMinutes`, 0 = tắt) để yêu cầu kế tiếp không phải đăng nhập lại; trong lúc chờ trang AMIS được đóng về trang trống.
+
+### Ba agent và bot hỏi–đáp
+
+Chạy `npm run bot` để bot nghe tin nhắn Telegram (chỉ phục vụ đúng `TELEGRAM_CHAT_ID`):
+
+| Gõ trong Telegram | Bot làm gì |
+|---|---|
+| `/baocao` | Lập báo cáo đối chiếu (dùng lại dữ liệu nếu vừa xuất trong `bot.maxDataAgeMinutes` phút, mặc định 30) |
+| `/moi` | Như trên nhưng luôn vào AMIS lấy dữ liệu mới |
+| câu hỏi bất kỳ | Ví dụ "Mã A12_2 còn tồn bao nhiêu?", "Những mã nào đang âm kho?" |
+
+**Thanh tiến độ:** ngay khi nhận yêu cầu, bot gửi một tin liệt kê các bước (đăng nhập → xuất báo cáo → kiểm tra chéo → trợ
+lý soạn trả lời → chuyên gia chốt → kế toán trưởng kiểm tra → gửi), cập nhật vài giây một lần: bước nào xong, đã chạy bao lâu, dự kiến còn
+bao lâu (tính từ thời lượng các lần chạy trước, lưu ở `output/thoi-gian.json`).
+
+**1. Agent chuyên gia phân tích** (`src/agents/expert.js`) — chuyên gia kế toán kho đối chiếu độc lập, phân tích và **chốt kết luận**.
+Với báo cáo: nhận kết quả các phép kiểm tra cùng các dòng dữ liệu liên quan, tự soát lại kết luận của chương trình (báo
+khớp mà dữ liệu lệch thì ghi là "HỆ THỐNG"), gom nhóm vấn đề theo mức ưu tiên, nêu giả thuyết nguyên nhân (chỉ khi có
+căn cứ từ số liệu, luôn bắt đầu bằng "Có thể") và việc cần làm, rồi chốt mức độ 🟢 Ổn / 🟡 Cần chú ý / 🔴 Nghiêm trọng.
+Với câu hỏi tự do: kiểm lại bản nháp của trợ lý theo bảng dữ liệu, sửa nếu sai và có thể thêm tối đa 3 câu phân tích.
+Phép kiểm tra bị bỏ qua không bao giờ được chốt là "ổn".
+
+**2. Agent kế toán trưởng** (`src/agents/reviewer.js`) — kiểm tra **độ chính xác** của toàn bộ nội dung gồm cả phần chuyên gia, không tự thêm nhận xét hay đề xuất. Nó nhận
+số liệu gốc (do chương trình tính từ file AMIS) và bản nháp, đối chiếu từng con số, mã hàng và kết luận. Nếu đúng: tin
+gửi đi chỉ có thêm một dòng "✔ Đã kiểm tra chéo độ chính xác". Nếu sai: với câu hỏi tự do thì trả lại cho chuyên gia/trợ lý làm lại
+(tối đa `bot.maxReviewRounds` vòng); vẫn sai thì câu trả lời được gửi kèm cảnh báo "KHÔNG ĐẠT" nêu rõ điểm sai. Agent này
+không được sửa số liệu trong báo cáo.
+
+**2. Agent giám sát độc lập** (`src/supervisor.js`) — chạy thành **tiến trình riêng**, tách khỏi tiến trình điều khiển
+trình duyệt, giám sát từ lúc đăng nhập. Mọi yêu cầu không phải GET gửi lên MISA và mọi lần bấm nút đều phải được nó cho
+phép; nếu tiến trình giám sát chết hoặc không trả lời thì thao tác bị từ chối. Luật cứng (cấm PUT/PATCH/DELETE, cấm URL và
+nút mang nghĩa ghi) luôn áp dụng và AI không gỡ được; khi có khoá Claude, endpoint/nút chưa gặp còn được AI phân loại
+(đọc / xác thực / xuất báo cáo / đo lường được qua; ghi dữ liệu / ghi cài đặt / không rõ bị chặn), kết quả lưu ở
+`output/giam-sat-phan-loai.json`. Nhật ký đầy đủ: `output/giam-sat.log`; tóm tắt nằm cuối mỗi tin Telegram.
+
+**4. Agent trợ lý** (`src/agents/answer.js`) — soạn câu trả lời cho câu hỏi tự do, chỉ dựa trên bảng tồn kho vừa xuất.
+
+**Chế độ không dùng AI** (mặc định trong `config.json`: `"ai": { "enabled": false }`): `/baocao` vẫn chạy đủ — đăng nhập,
+xuất, kiểm tra chéo, gửi Telegram; giám sát vẫn chặn ghi bằng luật cứng; tin báo cáo không nhắc gì tới AI. Câu hỏi được
+trả lời bằng tra cứu trực tiếp số liệu (theo mã hàng, hàng tồn âm, tổng tồn), nên con số đúng theo cách tính, không
+qua AI; câu hỏi ngoài các dạng này bot trả lời bằng hướng dẫn. Muốn bật AI: đặt `ANTHROPIC_API_KEY` trong `.env` và
+đổi `ai.enabled` thành `true` (hoặc xoá dòng đó).
+
+Các agent AI cần `ANTHROPIC_API_KEY` trong `.env` (model mặc định `claude-opus-5-5`, đổi ở `ai.model` trong
+`config.json`). Không có khoá: `/baocao` vẫn chạy, giám sát dùng luật cứng, tin báo cáo ghi rõ kế toán trưởng AI chưa bật,
+và bot không trả lời câu hỏi tự do. Khi bật AI, bảng tồn kho và phần đầu nội dung các yêu cầu gửi lên AMIS được gửi tới
+Claude API để phân tích.
+
+### Cài đặt
+
+Cần Node.js ≥ 20.12.
+
+```bash
+npm install
+npx playwright install chromium
+cp .env.example .env      # rồi điền tài khoản AMIS và Telegram
+```
+
+- **Telegram:** chat với [@BotFather](https://t.me/BotFather) → `/newbot` để lấy `TELEGRAM_BOT_TOKEN`. Nhắn 1 tin cho bot
+  (hoặc thêm bot vào nhóm), rồi mở `https://api.telegram.org/bot<TOKEN>/getUpdates` để lấy `chat.id`.
+  Thử kết nối: `npm run test-telegram`.
+- **Dữ liệu kế toán:** đặt `AMIS_TARGET_DB="TÊN DỮ LIỆU"` trong `.env`; sau khi đăng nhập bot kiểm tra tên dữ liệu đang
+  mở trên thanh tiêu đề AMIS, nếu không đúng thì dừng (bot không tự chuyển dữ liệu — hãy chuyển bằng `npm run login`). Cũng chấp nhận bộ tên biến `MISA_WEB_USERNAME`,
+  `MISA_WEB_PASSWORD`, `MISA_WEB_TARGET_DB`. Trong `steps` dùng được biến `{{targetDb}}`.
+- **AMIS:** nên tạo một tài khoản riêng chỉ có quyền *xem báo cáo*. Mật khẩu chỉ nằm trong `.env` (không đưa lên git).
+
+### Sử dụng
+
+| Lệnh | Tác dụng |
+|---|---|
+| `npm run login` | Mở trình duyệt có giao diện để đăng nhập / nhập OTP thủ công 1 lần. Phiên được lưu ở `.auth/profile`. |
+| `npm start` | Chạy toàn bộ: đăng nhập → xuất → đối chiếu → kế toán trưởng kiểm soát → gửi Telegram. |
+| `npm run bot` | Bot nghe lệnh và câu hỏi trên Telegram, có thanh tiến độ. |
+| `npm run dry-run` | Như trên nhưng chỉ in kết quả ra màn hình, không gửi Telegram. |
+| `npm run check` | Không vào AMIS; dùng lại file đã có trong `downloads/` (có thể tự chép file xuất tay vào `downloads/ton_kho.xlsx`). |
+| `npm test` | Kiểm thử với AMIS + Telegram giả lập. |
+
+Thêm `--headed` để xem trình duyệt chạy, `--fail-on-diff` để lệnh trả mã lỗi khi có chênh lệch.
+
+**File kiểm kê:** đặt tại `data/kiem_ke.xlsx` (hoặc `.csv`), gồm các cột `Mã hàng`, `Tên hàng`, `Số lượng thực tế`
+(mẫu: `data/kiem_ke.mau.csv`). Cùng một mã xuất hiện nhiều dòng sẽ được cộng dồn. Nếu chưa có file, phép so sánh này
+được bỏ qua, các phép còn lại vẫn chạy.
+
+### Hiệu chỉnh bước xuất báo cáo
+
+Mỗi báo cáo AMIS là một mục trong `sources` của `config.json`, với danh sách `steps` chạy lần lượt:
+
+| Bước | Ví dụ |
+|---|---|
+| `goto` | `{ "goto": "https://actapp.misa.vn/app/RP/ReportList/RPDynamicViewer/INInventoryBalanceSummary" }` |
+| `click` | `{ "click": "text=Tổng hợp tồn kho" }` hoặc có điều kiện: `{ "click": { "selector": "...", "ifVisible": "...", "unlessVisible": "...", "optional": true, "timeout": 15000 } }` (`optional`: chờ tối đa `timeout`, không thấy thì bỏ qua) |
+| `fill` | `{ "fill": { "selector": "input[placeholder*='Từ ngày']", "value": "{{fromDate}}", "enter": true } }` |
+| `fill` (nâng cao) | `{ "fill": { "selector": "...", "value": "{{fromDate}}", "tab": true, "verify": true } }` — `tab`: bấm Tab sau khi điền; `verify`: đọc lại giá trị, AMIS không nhận thì thử lại (ô ngày của AMIS đôi khi bỏ qua lần điền đầu) |
+| `dateRange` | `{ "dateRange": { "from": "...", "to": "...", "fromValue": "{{fromDate}}", "toValue": "{{toDate}}" } }` — đặt khoảng ngày, tự chọn thứ tự điền để AMIS không từ chối (từ > đến), đọc lại để xác nhận |
+| `setGroups` | `{ "setGroups": { "prefix": "<mã ô Nhóm VTHH>", "values": "{{groups}}" } }` — bỏ hết nhóm đang chọn rồi chọn đúng các nhóm trong `values` (mã ngăn bằng `|`; rỗng = không lọc); tự cuộn danh sách để tìm nhóm ở cuối |
+| `ensureChecked` | `{ "ensureChecked": "label:has-text('Chọn tất cả vật tư')" }` — tích ô nếu chưa tích (AMIS nhớ lựa chọn lần trước nên không bấm mù) |
+| `press` | `{ "press": "Enter" }` |
+| `wait` / `waitFor` / `waitGone` | `{ "wait": 3000 }` / `{ "waitFor": "text=Tổng cộng" }` / `{ "waitGone": "button:has-text('Xem báo cáo')" }` (chờ phần tử biến mất) |
+| `download` | `{ "download": { "selector": "text=\"Tải tệp\"", "response": "/file-access/download" } }` — bấm rồi lưu file từ phản hồi mạng có URL chứa `response`. Dạng `{ "download": "selector" }` dùng cơ chế tải file của trình duyệt. |
+
+Biến dùng được: `{{fromDate}}`, `{{toDate}}`, `{{today}}` (dd/MM/yyyy), tính theo `period`:
+`today`, `yesterday`, `thisMonth`, `lastMonth`, `thisYear` hoặc `{ "from": "01/01/2026", "to": "31/01/2026" }`.
+
+Cách lấy đúng selector: chạy `npm run codegen`, thao tác xuất báo cáo bằng tay trong cửa sổ hiện ra, Playwright sẽ ghi
+lại selector từng lần bấm — chép sang `steps`. Sau đó chạy `npm run dry-run -- --headed` để xem bot làm lại.
+
+Nếu trang đăng nhập không được nhận diện đúng, khai báo lại trong `amis.selectors`
+(`username`, `password`, `submit`, `otp`, `loggedIn`).
+
+### Thêm báo cáo / phép kiểm tra
+
+- Thêm nguồn vào `sources` (`type: "amis"` có `steps`, hoặc `type: "file"` có `path`). Trong `parse.fields`, mỗi trường
+  khai báo các tên cột có thể gặp (`headers`); tiêu đề 2 tầng ghi dạng `"Cuối kỳ Số lượng"`. Dòng tiêu đề, dòng nhóm và
+  dòng tổng cộng được tự nhận diện.
+- Các loại phép kiểm tra trong `checks`:
+  - `compare` — so khớp 2 nguồn theo `key`, so từng cặp cột trong `columns` (có `tolerance`).
+  - `balance` — trong 1 nguồn: tổng `plus` − tổng `minus` = `equals`.
+  - `negative` — cảnh báo giá trị cột nhỏ hơn `min` (mặc định 0).
+
+### Chạy tự động hằng ngày
+
+- **Máy tính / máy chủ riêng (khuyên dùng):** thêm vào crontab, ví dụ 7h30 thứ 2–7:
+  `30 7 * * 1-6 cd /duong/dan/qr-inventory-checker && npm start >> output/cron.log 2>&1`
+  (Windows: dùng Task Scheduler chạy `npm start`.)
+- **GitHub Actions:** đã có sẵn `.github/workflows/doi-chieu.yml`. Khai báo các secret `AMIS_USERNAME`, `AMIS_PASSWORD`,
+  `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (và `AMIS_TOTP_SECRET` nếu có), rồi tạo biến `AMIS_ENABLED=true` để bật.
+  Lưu ý: mỗi lần chạy trên GitHub là một "thiết bị mới" nên MISA sẽ đòi mã OTP gửi về email — cách này chỉ dùng được
+  nếu tài khoản xác thực bằng Authenticator (`AMIS_TOTP_SECRET`); và file kiểm kê phải được commit vào repo.
+
+### Một tài khoản, một phiên (quan trọng)
+
+MISA chỉ cho **một phiên đăng nhập cho mỗi tài khoản**: đăng nhập ở nơi mới sẽ đẩy phiên cũ ra. Nếu bot dùng chung tài
+khoản với người thật, mỗi lần chạy có thể làm người đó bị văng khỏi AMIS (mất dữ liệu đang nhập dở). Cách tốt nhất vẫn là
+**tạo một tài khoản AMIS riêng cho bot**, chỉ có quyền xem/xuất báo cáo.
+
+Khi AMIS hỏi "Đang có người dùng khác sử dụng tài khoản này", bot **dừng lại và hỏi bạn trên Telegram** (kèm thiết bị/IP
+đang dùng) với hai nút:
+- **✅ Đăng nhập tiếp**: bot mới bấm "Tiếp tục đăng nhập" (người kia bị đăng xuất), rồi làm việc bình thường.
+- **⛔ Huỷ**: bot dừng, không đụng tới phiên của người kia.
+
+Không bấm gì trong `amis.concurrentDecisionMs` (mặc định 10 phút) thì bot **tự huỷ**. Chỉ bấm của đúng chat
+`TELEGRAM_CHAT_ID` mới được tính. Chạy không có Telegram (ví dụ `--dry-run`) thì luôn huỷ. Mọi quyết định được ghi vào
+`output/giam-sat.log`. Đây là lần bấm duy nhất được phép với nút này; với mọi thao tác khác nó vẫn nằm trong danh sách cấm.
+
+### Xác thực 2 lớp
+
+- OTP qua SMS/email (MISA hỏi khi đăng nhập từ thiết bị mới): chạy `npm run login` một lần trên máy có màn hình, nhập
+  mã và tích "Không hỏi lại trên thiết bị này"; hồ sơ trình duyệt ở `.auth/profile` được giữ lại nên các lần sau không
+  bị hỏi lại.
+- Ứng dụng Authenticator: điền khoá bí mật vào `AMIS_TOTP_SECRET`, bot tự sinh mã.
+- Captcha: bot không tự giải; khi gặp sẽ báo lỗi về Telegram kèm ảnh màn hình.
+
+---
+
+`index.html` là bản demo quét mã QR kiểm kho tĩnh ban đầu.
+
+## Dùng bot trong nhóm Telegram
+
+1. Thêm bot vào nhóm. Nên tắt *Privacy mode* (@BotFather → `/setprivacy` → chọn bot → **Disable**), rồi **xoá bot khỏi nhóm và thêm lại** để thay đổi có hiệu lực — khi đó bot mới nhận được các nút trên bàn phím (vốn gửi như tin thường). Ô bấm trên trang chủ và lệnh `/...` vẫn chạy kể cả khi chưa tắt.
+2. **Chủ bot** gõ `/start` trong nhóm → bot bật cho nhóm đó (người khác gõ thì bot bỏ qua).
+3. Mọi thành viên **xem** được báo cáo; chỉ người được cấp quyền mới bấm nút / ra lệnh. Chủ bot cấp quyền bằng cách **trả lời (reply)** một tin của người đó với `/themnguoi`; bỏ quyền: reply `/boquyen`; xem danh sách: `/quyen`; tắt bot trong nhóm: `/tatnhom`.
+4. Báo cáo cuối ngày 17:30 được gửi vào nhóm (chưa có nhóm thì gửi chat riêng của chủ bot).
+
+Danh sách nhóm và người được cấp quyền lưu ở `data/telegram-access.json` (có thể khai báo sẵn trong `config.json`: `bot.groupChatIds`, `bot.allowedUserIds`).
+
+## Bảo mật
+
+Các lớp bảo vệ có sẵn trong chương trình (luôn bật):
+
+| Lớp | Chống lại |
+|---|---|
+| Chỉ đọc (luật cứng + agent giám sát) | Mọi thao tác ghi/sửa/xoá trên AMIS, kể cả khi cấu hình bị sửa sai |
+| Chỉ làm việc với máy chủ MISA | Trang chính bị chuyển hướng sang trang giả mạo; dữ liệu bị gửi (POST) tới máy chủ bên thứ ba. Thêm máy chủ hợp lệ khác bằng `amis.allowedHosts` |
+| Che bí mật | Mật khẩu AMIS, mã bot, khoá TOTP, khoá AI lọt vào tin Telegram, nhật ký hay nội dung gửi cho AI |
+| Phân quyền Telegram | Người lạ ra lệnh: chỉ chủ bot và người được cấp quyền; nhóm phải do chủ bot bật |
+| Tự rời nhóm lạ + cảnh báo | Người khác kéo bot vào nhóm của họ, hoặc người lạ nhắn riêng cho bot → bot im lặng và báo chủ bot |
+| Giới hạn tần suất | Spam lệnh: tối đa 20 thao tác/phút mỗi người (`bot.maxActionsPerMinute`), hàng đợi tối đa 5 |
+| Bỏ lệnh cũ | Lệnh gửi lúc bot tắt quá 5 phút không bị chạy dồn khi bot bật lại |
+| Quyền file | `.env`, hồ sơ trình duyệt, `downloads/`, `output/` chỉ chủ tài khoản máy đọc được (Linux/macOS) |
+| Xoay vòng nhật ký | Nhật ký giám sát không phình vô hạn (5 MB/file) |
+
+Việc **bạn** cần làm (chương trình không tự làm được):
+
+1. **Tài khoản AMIS riêng cho bot**, chỉ có quyền xem/xuất báo cáo, bật xác thực 2 lớp.
+2. **Đổi mật khẩu AMIS và tạo lại mã bot** (@BotFather → `/revoke`) nếu chúng từng được gửi qua chat/email.
+3. Không đưa `.env`, `.auth/`, `downloads/`, `output/` lên git hay chia sẻ; máy chạy bot nên đặt mật khẩu và mã hoá ổ đĩa.
+4. Trong nhóm Telegram: chỉ thêm người cần xem số liệu; rà soát `/quyen` định kỳ.
+5. Cập nhật thư viện định kỳ: `npm audit` (hiện 0 lỗ hổng) và `npm update`.
+
+## Nhiều công ty / sổ dữ liệu AMIS
+
+Một bot phục vụ nhiều công ty (khai báo ở `config.json` → `tenants`). Mỗi công ty có tài khoản AMIS (`envFile`, vd `.env.misa2` — không đưa lên git), sổ dữ liệu (`targetDb`), hồ sơ trình duyệt, thư mục tải về và danh sách Nhóm VTHH riêng nên số liệu không lẫn nhau. Công ty có `"default": true` dùng `.env` gốc.
+
+- Chat riêng của chủ bot: `/start` (hoặc 🏠 Trang chủ, `/congty`) mở **trang tổng công ty The Five**: 🏢 Toàn công ty, rồi từng chi nhánh (Kho Hà Nội, Đồng Nai, Miền Tây, Vĩnh Phúc), sau đó các sổ riêng (Kho Quảng Ninh). Bấm 1 mục → trang báo cáo hiện tại cho đúng phạm vi đó; nút ⬅️ để quay về trang tổng.
+- **🌐 Toàn hệ thống** (ô đầu tiên trên trang tổng): lấy cùng báo cáo ở mọi sổ (The Five toàn công ty + Kho Quảng Ninh, mỗi sổ đăng nhập tài khoản riêng) rồi gộp — tồn kho cộng theo mã hàng, quỹ tiền tính riêng từng sổ rồi cộng, chi phí/B02 cộng theo tài khoản/mã số. Thiếu 1 sổ thì báo lỗi chứ không gửi số thiếu. Chọn Nhóm VTHH: danh sách là hợp nhóm của các sổ (theo mã); nhóm có ở cả hai sổ thì lọc cả hai, nhóm chỉ có ở 1 sổ thì chỉ tính sổ đó và tin báo ghi chú (vd "Kho Quảng Ninh không có nhóm PRIZO"). Bot không sửa mã/nhóm nào trên AMIS.
+- Chi nhánh: khai báo `branches` của công ty (`codes` = mã chi nhánh trong ô "Chi nhánh" của báo cáo AMIS). "Toàn công ty" chọn tất cả chi nhánh (đã kiểm: tổng = cộng từng kho, không trùng). Mỗi chi nhánh có thư mục số liệu riêng.
+- Nhóm Telegram: cố định theo công ty mặc định (hoặc `tenants` trong `data/telegram-access.json`: `{ "<mã nhóm>": "<mã công ty>" }`).
+- Mọi nguyên tắc giữ nguyên: chỉ đọc, giám sát, che bí mật, chỉ chủ bot xem báo cáo tài chính.

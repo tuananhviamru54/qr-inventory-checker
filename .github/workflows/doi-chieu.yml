@@ -1,0 +1,28 @@
+name: Đối chiếu MISA AMIS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 0 * * 1-6'   # 07:30 giờ VN, thứ 2 → thứ 7
+
+jobs:
+  run:
+    # Chỉ chạy khi đã bật biến AMIS_ENABLED=true (Settings → Secrets and variables → Actions → Variables)
+    if: vars.AMIS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm start
+        env:
+          AMIS_USERNAME: ${{ secrets.AMIS_USERNAME }}
+          AMIS_PASSWORD: ${{ secrets.AMIS_PASSWORD }}
+          AMIS_TOTP_SECRET: ${{ secrets.AMIS_TOTP_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

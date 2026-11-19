@@ -1,0 +1,21 @@
+[
+  {"code":"CCDC","name":"Công cụ dụng cụ","level":0,"parent":null},
+  {"code":"DV","name":"Dịch vụ","level":0,"parent":null},
+  {"code":"HH","name":"Hàng hóa","level":0,"parent":null},
+  {"code":"ALU","name":"ALU","level":1,"parent":"HH"},
+  {"code":"ECO","name":"NHỰA ECO","level":1,"parent":"HH"},
+  {"code":"ECO+","name":"ECO+","level":1,"parent":"HH"},
+  {"code":"Mẫu","name":"Mẫu","level":1,"parent":"HH"},
+  {"code":"LUX","name":"LUX","level":1,"parent":"HH"},
+  {"code":"ECOSTAR","name":"ECOSTAR","level":1,"parent":"HH"},
+  {"code":"NC ECO+","name":"NC ECO+","level":1,"parent":"HH"},
+  {"code":"NC ECO","name":"NC ECO","level":1,"parent":"HH"},
+  {"code":"NBĐ","name":"NBĐ","level":1,"parent":"HH"},
+  {"code":"PKK","name":"PKK","level":1,"parent":"HH"},
+  {"code":"PENCO","name":"PENCO","level":1,"parent":"HH"},
+  {"code":"NPVC","name":"Nẹp PVC","level":1,"parent":"HH"},
+  {"code":"NVL","name":"Nguyên vật liệu","level":0,"parent":null},
+  {"code":"TTT","name":"Tấm than tre","level":1,"parent":"NVL"},
+  {"code":"TPVC","name":"Tấm PVC","level":1,"parent":"NVL"},
+  {"code":"TP","name":"Thành phẩm","level":0,"parent":null}
+]
