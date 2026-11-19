@@ -150,7 +150,7 @@ export function dashboardCaption(config, now = new Date()) {
 /** Ô bấm trang chủ; chat riêng của chủ bot có thêm ô Kết quả kinh doanh (🔒). */
 export const dashboardKeyboard = (ownerPrivate = false, multiCompany = false) => (ownerPrivate
   ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard.slice(0, 3), [{ text: '📑 Kết quả KD 🔒', callback_data: 'f:menu' }, { text: '💸 Chi phí 🔒', callback_data: 'y:menu' }], ...DASHBOARD_KEYBOARD.inline_keyboard.slice(3), ...(multiCompany ? [[{ text: '⬅️ Về trang tổng công ty', callback_data: 'z:co' }]] : [])] }
-  : DASHBOARD_KEYBOARD);
+  : multiCompany ? { inline_keyboard: [...DASHBOARD_KEYBOARD.inline_keyboard, [{ text: '⬅️ Về trang tổng công ty', callback_data: 'z:co' }]] } : DASHBOARD_KEYBOARD);
 /** Trang tổng (chỉ chủ bot, chat riêng): công ty có nhiều chi nhánh ở trên → bấm 1 chi nhánh để vào trang báo cáo hiện tại. */
 export function companyDashboard(config, now = new Date()) {
   const vn = new Date(now.getTime() + 7 * 3600e3);
@@ -886,7 +886,12 @@ export async function handleUpdate(config, tg, text, opts = {}) {
     }
   }
 
-  if (cmd === '/start') { await sendDashboard(config, tg, { ownerPrivate: opts.ownerPrivate }); return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU }); }
+  if (cmd === '/start') {
+    if (opts.group && (config.tenants?.length ?? 0) > 1) return sendCompanyDashboard(config, tg); // nhóm: trang tổng, chỉ nút inline
+    await sendDashboard(config, tg, { ownerPrivate: opts.ownerPrivate });
+    if (opts.group) return null;
+    return tg.sendMessage('⌨️ Bàn phím báo cáo đã sẵn sàng bên dưới.', { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU });
+  }
   if (cmd === '/help' || cmd === '/trogiup') return tg.sendMessage(helpText(config) + (opts.ownerPrivate ? '\n\n🔒 Riêng bạn: 📑 Kết quả KD (/ketqua) — báo cáo B02; 💸 Chi phí (/chiphi) — chi phí theo tài khoản, lợi nhuận ước tính. Đều so kỳ này với kỳ trước.' : ''), { reply_markup: opts.ownerPrivate ? MENU_OWNER : MENU });
   if (cmd === '/tonkho') return sendPeriodPicker(tg, '', 'stock', state);
   if (cmd === '/congnokh') return sendPeriodPicker(tg, '', 'ar', state);
@@ -969,6 +974,11 @@ export async function runBot(config, opts = {}) {
     if (!ctxs.has(id)) {
       const t = id === String(tg.chatId) ? tg : telegramOf({ ...config, secrets: { ...config.secrets, telegramChatId: id } });
       t.waiters = tg.waiters; t.pollerActive = true; // dùng chung danh sách chờ quyết định "đăng nhập tiếp?"
+      if (id.startsWith('-') && !t.groupWrapped) { // nhóm: chỉ dùng nút inline, không gửi bàn phím trả lời (ReplyKeyboard)
+        const send = t.sendMessage.bind(t);
+        t.sendMessage = (text, o = {}) => send(text, o.reply_markup?.keyboard ? { ...o, reply_markup: undefined } : o);
+        t.groupWrapped = true;
+      }
       const st = { awaitingRange: null, cal: null, pick: null };
       ctxs.set(id, { tg: t, state: st, opts: { ...opts, state: st, ownerPrivate: id === owner, group: id.startsWith('-') } }); // chat riêng của chủ bot có mã = mã chủ bot
     }
@@ -979,18 +989,29 @@ export async function runBot(config, opts = {}) {
   const cfgCache = new Map();
   const cfgOf = (chat) => {
     const st = ctx(chat).state;
-    const id = st.tenant ?? acc.tenants?.[chat] ?? defaultTenantId(config);
-    const k = `${id}:${st.branch ?? 0}`;
-    if (!cfgCache.has(k)) cfgCache.set(k, scopeConfig(config, id, st.branch ?? 0));
+    return scopeOf(st.tenant ?? defaultTenantId(config), st.branch ?? 0);
+  };
+  const scopeOf = (id, branch = 0) => {
+    const k = `${id}:${branch}`;
+    if (!cfgCache.has(k)) cfgCache.set(k, scopeConfig(config, id, branch));
     return cfgCache.get(k);
+  };
+  // báo cáo cuối ngày 17:30: phạm vi cố định theo cấu hình bot.dailyReport.tenant (mặc định: công ty mặc định = Quảng Ninh), không theo lựa chọn đang xem
+  const dailyCfg = (chat) => scopeOf(config.bot.dailyReport?.tenants?.[chat] ?? config.bot.dailyReport?.tenant ?? defaultTenantId(config), config.bot.dailyReport?.branch ?? 0);
+  const multi = tenantsOf(config).length > 1;
+  // gỡ bàn phím trả lời cũ trong nhóm (gửi tin gỡ rồi xoá ngay)
+  const removeReplyKeyboard = async (t) => {
+    const m = await t.call('sendMessage', { chat_id: t.chatId, text: '⌛', reply_markup: { remove_keyboard: true }, disable_notification: true }).catch(() => null);
+    if (m?.message_id) await t.call('deleteMessage', { chat_id: t.chatId, message_id: m.message_id }).catch(() => {});
   };
   console.log(`Bot đang chạy (chỉ đọc). Trợ lý AI: ${aiEnabled(config.ai) ? 'bật' : 'tắt — thiếu ANTHROPIC_API_KEY'}. Nhóm đã bật: ${groups().length ? groups().map((g) => `${acc.names[g] ?? ''} (${g})`).join(', ') : 'chưa có'}. Nhấn Ctrl+C để dừng.`);
   await tg.setCommands(COMMANDS).catch((e) => console.error(`Không đăng ký được menu lệnh: ${e.message}`));
   if (config.bot.announceOnStart !== false) {
     const home = groups()[0] ?? owner; // đã có nhóm → chào trong nhóm
     const h = ctx(home).tg;
-    await sendDashboard(cfgOf(home), h).catch(() => {});
-    await h.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
+    if (home !== owner) await removeReplyKeyboard(h);
+    if (multi) await sendCompanyDashboard(config, h).catch(() => {}); else await sendDashboard(cfgOf(home), h).catch(() => {});
+    if (home === owner) await h.sendMessage('🤖 <b>Bot đã sẵn sàng.</b> Bấm ô trên trang chủ hoặc dùng bàn phím bên dưới.', { reply_markup: MENU }).catch(() => {});
   }
   if (!opts.once) enableWarmSession(config.bot.keepSessionMinutes ?? 10);
   // ---- Bảo vệ: giới hạn tần suất, bỏ lệnh cũ, cảnh báo người lạ ----
@@ -1049,7 +1070,7 @@ export async function runBot(config, opts = {}) {
       setTimeout(() => {
         const targets = groups().length ? groups() : [owner];
         const auto = { used: 0, limit: 2 }; // lượt báo cáo 17:30: tự đăng nhập tiếp 2 lần, lần thứ 3 dừng lại hỏi
-        targets.forEach((chat) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(cfgOf(chat), c.tg, { ...c.opts, fresh: true, autoTakeover: auto })); });
+        targets.forEach((chat) => { const c = ctx(chat); dispatch(c.tg, () => handleDaily(dailyCfg(chat), c.tg, { ...c.opts, fresh: true, autoTakeover: auto })); });
         plan();
       }, wait).unref?.();
     };
@@ -1085,12 +1106,11 @@ export async function runBot(config, opts = {}) {
           else await t.sendMessage('Nút thử lại này đã hết hạn (bot vừa khởi động lại). Hãy bấm lại nút báo cáo.').catch(() => {});
         } else if (/^z:(co|br)/.test(cq.data ?? '')) { // trang tổng / chọn chi nhánh: chỉ chủ bot trong chat riêng
           await answer();
-          if (chat !== owner) { await t.sendMessage('Chỉ chủ bot chọn được công ty / chi nhánh, trong chat riêng với bot.').catch(() => {}); continue; }
           const [, kind2, tid, bi] = cq.data.split(':');
           const ten = tid === SYSTEM_ID ? { id: SYSTEM_ID } : tenantsOf(config).find((x) => x.id === tid);
           if (kind2 === 'br' && ten && (+bi === 0 || ten.branches?.[+bi])) {
             Object.assign(ctx(chat).state, { tenant: tid, branch: +bi || 0 });
-            await sendDashboard(cfgOf(chat), t, { ownerPrivate: true }).catch(() => {});
+            await sendDashboard(cfgOf(chat), t, { ownerPrivate: o.ownerPrivate }).catch(() => {});
           } else await sendCompanyDashboard(config, t).catch(() => {});
         } else if (/^[skpqhjmnruvwzfeyo]:/.test(cq.data ?? '')) {
           await answer();
@@ -1154,7 +1174,11 @@ export async function runBot(config, opts = {}) {
       if (!acc.users.has(from)) continue; // thành viên chưa được cấp quyền: chỉ xem, bot không trả lời
       { const rl = limiter.check(from); if (rl !== 'ok') { if (rl === 'warn') await t.sendMessage('⏳ Bạn gửi lệnh quá nhanh. Chờ 1 phút rồi thử lại.').catch(() => {}); continue; } }
       // chủ bot, chat riêng, có nhiều công ty: /start, 🏠 Trang chủ, /congty → trang tổng công ty
-      if (chat === owner && tenantsOf(config).length > 1 && (cmd === '/start' || cmd === '/congty' || msg.text.trim() === BTN.home)) { if (limiter.check(from) === 'ok') await sendCompanyDashboard(config, t).catch(() => {}); continue; }
+      if ((chat === owner || o.group) && multi && (cmd === '/start' || cmd === '/congty' || msg.text.trim() === BTN.home)) {
+        if (o.group) await removeReplyKeyboard(t);
+        await sendCompanyDashboard(config, t).catch(() => {});
+        continue;
+      }
       dispatch(t, () => handleUpdate(cfgOf(chat), t, msg.text, o));
     }
     if (opts.once) return;
